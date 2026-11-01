@@ -1,0 +1,117 @@
+name: Quality
+
+on:
+  push:
+    branches: [main, kmp-rewrite]
+  pull_request:
+    branches: [main, kmp-rewrite]
+  workflow_dispatch:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Temurin JDK 17 — pinned distribution for reproducible Gradle builds.
+      # cache: gradle activates actions/setup-java's built-in Gradle cache
+      # (caches ~/.gradle/caches + ~/.gradle/wrapper keyed on Gradle wrapper
+      # properties). Invalidates automatically on gradle-wrapper.properties
+      # or build.gradle.kts changes.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # ./gradlew check runs all enabled verification tasks on all targets
+      # that the ubuntu-latest runner can build (JVM-side only — no Xcode
+      # toolchain here). This covers commonTest (via allTests) and jvmTest
+      # for the shared/ module (NFR-07, MC-03).
+      - name: Run Gradle checks
+        run: ./gradlew check --no-daemon
+
+      # Structural audit: asserts the full M1 target tree is intact
+      # (Gradle root files, shared/ source sets, iosApp/ shell, ExportOptions
+      # at repo root, no Flutter residue, kmp-rewrite in both workflow triggers,
+      # etc.). Fails fast with a descriptive message identifying the first
+      # failing check. Script is authored in TASK-07 (Wave 4 of the M1 plan);
+      # this step is a forward reference — it will be a no-op until the script
+      # exists, but is placed here now so the CI step is present when the
+      # script lands. See §6 (plan changes) for the cross-file step log.
+      - name: M1 structural gate
+        run: bash tool/m1_gate.sh
+
+      # M4 Liquid Glass Chrome structural gate: enforces the 13 invariants
+      # added in Milestone 4 that M1 does not cover — glass-off-content,
+      # glass-scoped-to-Chrome, no-glass-fallback-branch, single-settings-
+      # instance, no-VM-surface-widen, text-private-set, no-Find-entry,
+      # no-separate-KeyboardAccessoryBar, SourceScanGateTest passthrough,
+      # populate-gate-removed, no-epoch-arithmetic-in-factory,
+      # About-URLs-not-localized, no-okio-across-boundary.
+      # Complements m1_gate (scaffold purity); m1 and m4 are not redundant.
+      # Spec refs: NFR-01/02/05/06/08; TASK-13 (Wave 8, sp-kmp-m4 plan).
+      - name: M4 structural gate
+        run: bash tool/m4_gate.sh
+
+      # M5 Share & Lifecycle structural gate: enforces the 8 invariants added
+      # in Milestone 5 — coordinator-exists, no-async-in-save-path (R-01/AR-01
+      # synchronous background save), sync-save-uses-background-task, scenePhase-
+      # in-ContentView, scenePhase-not-in-VM (FR-12, reinforces m4 check 5),
+      # plist-filesharing (FR-17 UIFileSharingEnabled + LSSupportsOpeningDocuments
+      # InPlace), sharelink-empty-gate (FR-20 disabled ShareLink on empty buffer),
+      # m1+m4-still-pass (chains to m1_gate + m4_gate, cannot go green if earlier
+      # invariant regresses).
+      # Spec refs: FR-14, FR-17, FR-20; R-01, AR-01, R-11; §5.3.
+      - name: M5 Share & Lifecycle gate
+        run: bash tool/m5_gate.sh
+
+      # M6 Localization & Theming structural gate: enforces the 12 invariants
+      # added in Milestone 6 — xcstrings-exists (git-tracked Localizable.xcstrings),
+      # xcstrings-has-it+en (catalog contains both "en" and "it"), xcstrings-registered
+      # (pbxproj has text.json.xcstrings PBXFileReference AND "it" in knownRegions),
+      # shared-zero-ui-strings (commonMain holds no display string literals, FR-24),
+      # preferredColorScheme-at-root (wired in ContentView.swift, FR-23),
+      # no-hardcoded-scheme (no literal .dark/.light at root, C-05),
+      # launch-colorset-has-dark (LaunchBackground.colorset luminosity dark variant),
+      # no-Text-verbatim-userfacing (no Text(verbatim:) in Chrome/Editor),
+      # tooltips-localized (zero "localized in M6" markers + String(localized: in
+      # TopPill/BottomToolbar), ThemeResolutionTests-registered (in pbxproj test
+      # Sources phase), tap-target-44 (frame(minWidth/minHeight: 44) in Chrome/),
+      # m1+m4+m5-still-pass (chains all three prior gates).
+      # Spec refs: FR-23, FR-24; NFR-04, NFR-05.
+      - name: M6 Localization & Theming gate
+        run: bash tool/m6_gate.sh
+
+      # M7 CI to TestFlight & Hardening structural gate: enforces the 13 invariants
+      # added in Milestone 7 — plist-marketing-version-macro (CFBundleShortVersionString
+      # = $(MARKETING_VERSION)), plist-build-version-macro (CFBundleVersion =
+      # $(CURRENT_PROJECT_VERSION)), plist-icon-name (CFBundleIconName = AppIcon),
+      # plist-branding (CFBundleName + CFBundleDisplayName both Foglietto),
+      # appicon-luminosity-variants (dark + tinted appearances in Contents.json),
+      # exportoptions-method-appstore (method = app-store), exportoptions-manual-signing
+      # (signingStyle = manual), exportoptions-bundle-id-key (com.paolosantucci.foglietto
+      # under provisioningProfiles), exportoptions-manage-version-false
+      # (manageAppVersionAndBuildNumber = false — prevents Xcode from overriding the
+      # CLI-set build number during -exportArchive), deploy-tag-gated (deploy_testflight
+      # job if: startsWith(github.ref, 'refs/tags/v')), deploy-has-upload (altool
+      # --upload-app in ios.yml), no-legacy-runner-pods-tokens (zero active Runner.app
+      # / pod install / Podfile tokens in ios.yml), m1+m4+m5+m6-still-pass (chains
+      # all four prior gates — M7 cannot go green if any earlier invariant regresses).
+      # Spec refs: FR-26, FR-27; §3.1.d invariant table.
+      - name: M7 structural gate
+        run: bash tool/m7_gate.sh
+
+      # SP Chrome Morph + Layout Polish source-scan gate: enforces the 7 §3.1
+      # pinned markers from qp-20260621-kmp-ios-chrome-morph-layout —
+      # (a) BottomToolbar.swift body order: closeKeyboardButton before copyButton,
+      # (b) NoteEditor.swift: textContainerInset present and not = .zero + lineFragmentPadding = 0,
+      # (c) ChromeOverlay.swift: no .popover( on code lines + GlassEffectContainer present
+      #     + glassEffectID present anywhere in Chrome/ + accessibilityReduceMotion present,
+      # (d) chains m4_gate.sh (+ m1) so no earlier invariant can regress while this gate is green.
+      # Spec refs: qp-20260621 §3.1; C-03, C-06, C-07, C-08; EC-14; NFR-01/02/03/04.
+      - name: SP Chrome Morph gate
+        run: bash tool/sp_chrome_morph_gate.sh

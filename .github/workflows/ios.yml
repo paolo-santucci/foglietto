@@ -1,0 +1,442 @@
+name: iOS
+
+on:
+  push:
+    branches: [main, kmp-rewrite]
+    tags: ['v*']
+  pull_request:
+    branches: [main, kmp-rewrite]
+  workflow_dispatch:
+    inputs:
+      marketing_version:
+        description: "CFBundleShortVersionString override (e.g. 1.0.1). Blank = default."
+        required: false
+        type: string
+        default: ""
+      build_number_offset:
+        description: "Integer added to GITHUB_RUN_NUMBER for CFBundleVersion. Blank/0 = no offset."
+        required: false
+        type: string
+        default: ""
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # build_ios — runs on every push / PR (including kmp-rewrite, non-tag).
+  # Proves MC-02: the Gradle Kotlin/Native toolchain can assemble the shared
+  # XCFramework, and xcodebuild can archive the native iosApp shell against it
+  # without signing. No IPA export and no TestFlight upload here.
+  # ---------------------------------------------------------------------------
+  build_ios:
+    # macos-26 ships Xcode 26 (iOS 26 SDK). Apple requires the iOS 26 SDK for
+    # all App Store uploads as of mid-2026 — macos-15 (Xcode 16 / iOS 18 SDK)
+    # causes a 409 rejection from altool even when signing succeeds.
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Belt-and-suspenders Xcode selection: ensures Xcode 26 is active even if
+      # the runner image ships multiple Xcode versions.
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
+
+      # Temurin JDK 17 is required by the Kotlin/Native Gradle toolchain that
+      # assembles the shared XCFramework. cache: gradle caches ~/.gradle on the
+      # macOS runner keyed on the wrapper properties file.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # Assemble the shared Kotlin Multiplatform XCFramework.
+      # Fixed contract (TASK-02 / §5.1.1):
+      #   task  → :shared:assembleSharedReleaseXCFramework
+      #   output → shared/build/XCFrameworks/release/shared.xcframework
+      # The iosApp SPM binaryTarget points at that exact path.
+      - name: Assemble shared XCFramework
+        run: ./gradlew :shared:assembleSharedReleaseXCFramework --no-daemon
+
+      # Smoke-archive the iosApp native shell without code signing.
+      # This validates that SPM resolves the local binaryTarget, the Swift
+      # sources compile, and the asset catalog (AppIcon, LaunchBackground)
+      # is intact — the full build chain minus signing (MC-02).
+      # NSUnbufferedIO suppresses Xcode's default output buffering so log
+      # lines appear immediately in the CI log.
+      - name: Archive iosApp (no code sign)
+        env:
+          NSUnbufferedIO: YES
+        run: |
+          xcodebuild \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/iosApp.xcarchive" \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            archive
+
+  # ---------------------------------------------------------------------------
+  # test_ios — runs on every push / PR on kmp-rewrite and main (not tag-gated).
+  # Proves MC-03: the iosAppTests XCTest target compiles and runs on an iOS
+  # Simulator, and the NFR-01 surrogate-pair XCTest passes.
+  # False-green guard: the job fails if zero tests execute.
+  # ---------------------------------------------------------------------------
+  test_ios:
+    runs-on: macos-26
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # Assemble the shared XCFramework — required by iosApp which iosAppTests
+      # links against (TEST_HOST = iosApp binary, BUNDLE_LOADER = TEST_HOST).
+      - name: Assemble shared XCFramework
+        run: ./gradlew :shared:assembleSharedReleaseXCFramework --no-daemon
+
+      # Run the iosAppTests suite on the iOS 26 Simulator.
+      # -destination: prefer OS=latest with a named device for Xcode 26 / macos-26.
+      # CODE_SIGNING_ALLOWED=NO: unit tests don't require signing.
+      # -resultBundlePath: captures structured output for the false-green guard.
+      # set -o pipefail: ensures xcpretty/grep failure propagates.
+      - name: Run iosAppTests on iOS Simulator
+        env:
+          NSUnbufferedIO: YES
+        run: |
+          set -o pipefail
+          # Dynamically select the first available iPhone simulator UDID so the job
+          # is not tied to a fixed device name or OS version that may not be installed
+          # on the macos-26 runner image.  If no simulator is found, print the list
+          # and fail early with a clear error.
+          UDID=$(xcrun simctl list devices available -j | python3 -c "import json,sys; d=json.load(sys.stdin)['devices']; print(next((x['udid'] for rt in d for x in d[rt] if x.get('isAvailable') and x['name'].startswith('iPhone')), ''))")
+          if [ -z "$UDID" ]; then
+            echo 'ERROR: No available iPhone simulator found on this runner.' >&2
+            xcrun simctl list devices available
+            exit 1
+          fi
+          echo "Using simulator UDID: $UDID"
+          xcodebuild test \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Debug \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -resultBundlePath "$RUNNER_TEMP/iosAppTests.xcresult" \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | tee "$RUNNER_TEMP/xcodebuild-test.log"
+
+      # False-green guard: fail the job if zero tests executed.
+      # "Executed 0 tests" in the log means XCTest ran but found nothing —
+      # that would silently pass the xcodebuild exit code (0) and be a false green.
+      - name: False-green guard — assert at least 1 test executed
+        run: |
+          LOG="$RUNNER_TEMP/xcodebuild-test.log"
+
+          # Must contain a "Test Suite" passed/failed line (confirms XCTest ran).
+          if ! grep -q 'Test Suite .* \(passed\|failed\)' "$LOG"; then
+            echo "ERROR: No 'Test Suite ... passed/failed' line found — XCTest did not run." >&2
+            exit 1
+          fi
+
+          # Must NOT show "Executed 0 tests" — that is a false-green with no tests.
+          if grep -q 'Executed 0 tests' "$LOG"; then
+            echo "ERROR: xcodebuild reported 'Executed 0 tests' — iosAppTests suite is empty." >&2
+            exit 1
+          fi
+
+          echo "False-green guard PASSED — at least 1 test executed."
+
+      - name: Export UI screenshots
+        if: always()
+        run: |
+          xcrun xcresulttool export attachments --path "$RUNNER_TEMP/iosAppTests.xcresult" --output-path "$RUNNER_TEMP/ui-screenshots"
+
+      - name: Upload UI screenshots
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ui-screenshots
+          path: ${{ runner.temp }}/ui-screenshots
+
+  # ---------------------------------------------------------------------------
+  # deploy_testflight — gated to v* tags only.
+  # Full signing + export + TestFlight upload via xcrun altool.
+  # The signing spine (steps 2–6 in assessment §3) is preserved VERBATIM from
+  # the pre-KMP ios.yml; only the Flutter build steps and the Ruby xcodeproj
+  # Runner-target patch and the actool-workaround rm step are removed — those
+  # Flutter coupling points disappear because xcodebuild archives the native
+  # iosApp target directly, so actool runs correctly on its own (R-07 landmine
+  # structurally gone per assessment §6).
+  # ---------------------------------------------------------------------------
+  deploy_testflight:
+    # macos-26 ships Xcode 26 (iOS 26 SDK). Apple requires the iOS 26 SDK for
+    # all App Store uploads as of mid-2026.
+    runs-on: macos-26
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      # Belt-and-suspenders Xcode selection.
+      - name: Select Xcode 26
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '26'
+
+      # Temurin JDK 17 for the Gradle/Kotlin/Native XCFramework assembly step.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      # -----------------------------------------------------------------------
+      # Decode signing materials from GitHub Secrets onto the ephemeral runner
+      # filesystem. Nothing from this point is committed; CI starts from a
+      # fresh checkout on every run.
+      # -----------------------------------------------------------------------
+
+      - name: Decode signing materials
+        env:
+          IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
+          IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/signing"
+          echo "$IOS_DIST_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/dist.p12"
+          echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/profile.mobileprovision"
+
+      - name: Create ephemeral keychain and import certificate
+        env:
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.IOS_KEYCHAIN_PASSWORD }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+        run: |
+          KEYCHAIN="$RUNNER_TEMP/signing/foglietto-ci.keychain-db"
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security default-keychain -s "$KEYCHAIN"
+          # Add ephemeral keychain to the user search list alongside the login
+          # keychain so codesign can locate the identity on all runner revisions.
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$KEYCHAIN"
+
+          # Import distribution certificate (cert + private key)
+          security import "$RUNNER_TEMP/signing/dist.p12" \
+            -k "$KEYCHAIN" \
+            -P "$IOS_DIST_CERT_PASSWORD" \
+            -A -t cert -f pkcs12
+
+          # Allow codesign to read the key without a UI password prompt.
+          # Both -S flags are required; omitting either causes codesign to hang.
+          security set-key-partition-list \
+            -S "apple-tool:,apple:" \
+            -s \
+            -k "$IOS_KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN"
+
+      - name: Install provisioning profile
+        run: |
+          # Extract UUID from the provisioning profile plist payload
+          PROFILE_UUID=$(security cms -D -i "$RUNNER_TEMP/signing/profile.mobileprovision" \
+            | plutil -extract UUID raw -)
+
+          # Mask the UUID so it never appears in plain text in CI logs
+          echo "::add-mask::$PROFILE_UUID"
+
+          # Non-fatal profile diagnostic — prints expiry + does-not-gate the run.
+          security cms -D -i "$RUNNER_TEMP/signing/profile.mobileprovision" \
+            | plutil -extract ExpirationDate raw - 2>/dev/null \
+            | sed 's/^/Provisioning profile ExpirationDate: /' || true
+
+          PROFILES_DIR="$HOME/Library/MobileDevice/Provisioning Profiles"
+          mkdir -p "$PROFILES_DIR"
+          cp "$RUNNER_TEMP/signing/profile.mobileprovision" \
+            "$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
+
+          # Persist UUID for subsequent steps via GITHUB_ENV
+          echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+
+      - name: Decode App Store Connect API key
+        env:
+          APP_STORE_CONNECT_API_KEY_BASE64: ${{ secrets.APP_STORE_CONNECT_API_KEY_BASE64 }}
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          ASC_KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$ASC_KEY_DIR"
+          echo "$APP_STORE_CONNECT_API_KEY_BASE64" | base64 --decode \
+            > "$ASC_KEY_DIR/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          chmod 600 "$ASC_KEY_DIR/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+
+      - name: Materialize ExportOptions.plist
+        env:
+          IOS_DEVELOPMENT_TEAM_ID: ${{ secrets.IOS_DEVELOPMENT_TEAM_ID }}
+        run: |
+          # Template is now at the repo root (relocated from ios/ in TASK-03).
+          sed \
+            -e "s|__TEAM_ID__|$IOS_DEVELOPMENT_TEAM_ID|g" \
+            -e "s|__PROFILE_UUID__|$PROFILE_UUID|g" \
+            ExportOptions.plist.template \
+            > "$RUNNER_TEMP/ExportOptions.plist"
+
+      # -----------------------------------------------------------------------
+      # Build flow (KMP / native):
+      #   1. Assemble the shared XCFramework via Gradle Kotlin/Native.
+      #   2. Archive the native iosApp Xcode project directly via xcodebuild,
+      #      passing signing identity + team + profile as CLI overrides on the
+      #      iosApp target (no CocoaPods targets to avoid, no xcodeproj Ruby
+      #      patch needed — CLI overrides are safe on a single-target project).
+      #   3. Export the IPA from the archive.
+      #
+      # This replaces the Flutter → Ruby xcodeproj patch → rm Runner.app →
+      # xcodebuild chain. The actool / CFBundleIconName landmine (R-07) is
+      # structurally gone: xcodebuild archive on the native iosApp target runs
+      # actool directly with no prior Flutter pre-build artifact to skip it.
+      # -----------------------------------------------------------------------
+
+      - name: Assemble shared XCFramework
+        run: ./gradlew :shared:assembleSharedReleaseXCFramework --no-daemon
+
+      - name: Archive iosApp
+        env:
+          IOS_DEVELOPMENT_TEAM_ID: ${{ secrets.IOS_DEVELOPMENT_TEAM_ID }}
+          NSUnbufferedIO: YES
+        run: |
+          # MARKETING_VERSION: dispatch input > repo variable > literal default "1.0.0"
+          MV="${{ github.event.inputs.marketing_version }}"
+          [ -z "$MV" ] && MV="${{ vars.IOS_MARKETING_VERSION }}"
+          [ -z "$MV" ] && MV="1.0.0"
+
+          # build-number OFFSET: dispatch input > repo variable > 0
+          OFF="${{ github.event.inputs.build_number_offset }}"
+          [ -z "$OFF" ] && OFF="${{ vars.IOS_BUILD_NUMBER_OFFSET }}"
+          [ -z "$OFF" ] && OFF="0"
+          CPV=$(( GITHUB_RUN_NUMBER + OFF ))
+
+          xcodebuild \
+            -project iosApp/iosApp.xcodeproj \
+            -scheme iosApp \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/iosApp.xcarchive" \
+            MARKETING_VERSION="$MV" \
+            CURRENT_PROJECT_VERSION="$CPV" \
+            DEVELOPMENT_TEAM="$IOS_DEVELOPMENT_TEAM_ID" \
+            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            CODE_SIGN_STYLE=Manual \
+            CODE_SIGN_IDENTITY="Apple Distribution" \
+            archive
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/iosApp.xcarchive" \
+            -exportPath "$RUNNER_TEMP/ipa" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist"
+
+      # -----------------------------------------------------------------------
+      # Validate IPA bundle contents before upload: confirm that actool
+      # produced AppIcon entries in Assets.car and that Info.plist retains
+      # CFBundleIconName. A missing key here will cause altool to reject the
+      # upload with "Missing required icon file" / "Missing CFBundleIconName".
+      # This step is always informational — it prints and exits 0 so that a
+      # bad build is still caught by altool but the log shows the exact state.
+      # -----------------------------------------------------------------------
+
+      - name: Validate IPA bundle (icon + plist sanity)
+        run: |
+          IPA=$(ls "$RUNNER_TEMP/ipa"/*.ipa)
+          WORK="$RUNNER_TEMP/ipa-inspect"
+          mkdir -p "$WORK"
+          unzip -q "$IPA" -d "$WORK"
+          APP="$WORK/Payload/iosApp.app"
+          FAIL=0
+
+          echo "===== AppIcon / Assets.car presence ====="
+          find "$APP" -maxdepth 2 \( -name 'AppIcon*' -o -name 'Assets.car' \) \
+            -print -exec ls -lh {} \;
+
+          echo "===== CFBundleIconName ====="
+          plutil -extract CFBundleIconName raw -o - "$APP/Info.plist" \
+            || { echo "ERROR: CFBundleIconName is MISSING from bundle Info.plist"; FAIL=1; }
+
+          echo "===== assetutil icon inventory ====="
+          ICON_NAMES=$(xcrun --sdk iphoneos assetutil --info "$APP/Assets.car" 2>&1 \
+            | grep '"Name"' | grep -i appicon || true)
+          if [ -z "$ICON_NAMES" ]; then
+            echo "ERROR: No AppIcon entries found in Assets.car — actool did not compile the icon set"
+            xcrun --sdk iphoneos assetutil --info "$APP/Assets.car" 2>&1 \
+              | grep -E '"Name"|"PixelWidth"|"PixelHeight"' | head -30
+            FAIL=1
+          else
+            xcrun --sdk iphoneos assetutil --info "$APP/Assets.car" 2>&1 \
+              | grep -E '"Name"|"PixelWidth"|"PixelHeight"' | head -60
+          fi
+
+          exit $FAIL
+
+      - name: Validate app (server-side, diagnostic only)
+        continue-on-error: true
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          xcrun altool \
+            --validate-app \
+            --type ios \
+            --file "$RUNNER_TEMP/ipa"/*.ipa \
+            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
+
+      - name: Upload to TestFlight
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+          APP_STORE_CONNECT_API_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_API_ISSUER_ID }}
+        run: |
+          # --use-old-altool works around the Xcode 26.2+ altool regression in the
+          # provider/app lookup ("Cannot determine the Apple ID from Bundle ID and
+          # platform IOS", error 19): the legacy lookup implementation resolves the
+          # app correctly under the same API-key auth. Confirmed upstream by
+          # fastlane/fastlane#30114. Drop once Apple fixes the regression.
+          xcrun altool \
+            --use-old-altool \
+            --upload-app \
+            --type ios \
+            --file "$RUNNER_TEMP/ipa"/*.ipa \
+            --apiKey "$APP_STORE_CONNECT_API_KEY_ID" \
+            --apiIssuer "$APP_STORE_CONNECT_API_ISSUER_ID"
+
+      # -----------------------------------------------------------------------
+      # Cleanup: always runs, even on failure, so signing material does not
+      # linger on the runner filesystem between steps or in job artifacts.
+      # -----------------------------------------------------------------------
+
+      - name: Cleanup signing material
+        if: always()
+        env:
+          APP_STORE_CONNECT_API_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+        run: |
+          security delete-keychain "$RUNNER_TEMP/signing/foglietto-ci.keychain-db" 2>/dev/null || true
+          rm -f "$RUNNER_TEMP/signing/dist.p12"
+          rm -f "$RUNNER_TEMP/signing/profile.mobileprovision"
+          rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
+          if [ -n "$PROFILE_UUID" ]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          fi
