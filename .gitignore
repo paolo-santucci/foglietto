@@ -1,0 +1,52 @@
+# Miscellaneous
+*.class
+*.log
+*.pyc
+*.swp
+.DS_Store
+.atom/
+.buildlog/
+.history
+.svn/
+
+# IntelliJ / Android Studio
+.idea/
+
+# The .vscode folder contains launch configuration and tasks you configure in
+# VS Code which you may wish to be included in version control, so this line
+# is commented out by default.
+#.vscode/
+
+# Gradle
+.gradle/
+build/
+**/build/
+local.properties
+
+# Kotlin/Native
+.kotlin/
+
+# Xcode
+xcuserdata/
+*.xcodeproj/xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+
+# Built XCFramework artifact — produced by Gradle at
+# shared/build/XCFrameworks/release/shared.xcframework; never committed
+*.xcframework
+
+# SwiftPM
+Pods/
+.swiftpm/
+iosApp/SharedPackage/.build/
+
+# Secrets — never commit; provisioned via CI secrets
+*.keystore
+*.jks
+
+# Project-local (gitignored by design — not carried by clones)
+.obsidian/
+.claude/
+STATUS.yaml
+CLAUDE.md
