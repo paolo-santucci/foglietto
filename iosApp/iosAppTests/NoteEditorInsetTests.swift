@@ -1,6 +1,14 @@
 import XCTest
 import UIKit
 @testable import iosApp
+import shared
+
+private final class StubSettingsRepository: SettingsRepository {
+    var storedSettings = AppSettings(colorScheme: AppColorScheme.follow, fontSizeIndex: 8)
+
+    func load() -> AppSettings { storedSettings }
+    func save(settings: AppSettings) { storedSettings = settings }
+}
 
 @MainActor
 private final class TestSafeAreaWindow: UIWindow {
