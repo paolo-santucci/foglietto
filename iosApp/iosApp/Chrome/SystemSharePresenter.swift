@@ -8,6 +8,7 @@ enum SystemSharePresenter {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               presenting.view.window != nil,
               presenting.presentedViewController == nil else { return }
+        presenting.view.layoutIfNeeded()
         let controller = UIActivityViewController(activityItems: [text], applicationActivities: nil)
         controller.modalPresentationStyle = .popover
         guard let popover = controller.popoverPresentationController else { return }

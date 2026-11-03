@@ -136,22 +136,20 @@ final class ChromeBarCoordinator: NSObject, UIPopoverPresentationControllerDeleg
         )
     }
 
-    func prepareForPopoverPresentation(_ popoverPresentationController: UIPopoverPresentationController) {
-        alignPopover(popoverPresentationController)
-    }
-
     func popoverPresentationController(
         _ popoverPresentationController: UIPopoverPresentationController,
         willRepositionPopoverTo rect: UnsafeMutablePointer<CGRect>,
         in view: AutoreleasingUnsafeMutablePointer<UIView>
     ) {
+        let presented = popoverPresentationController.presentedViewController
+        guard !presented.isBeingPresented, !presented.isBeingDismissed,
+              presented.transitionCoordinator == nil else { return }
         alignPopover(popoverPresentationController)
     }
 
     private func alignPopover(_ popover: UIPopoverPresentationController) {
         guard let navigation, let referenceView = navigation.view else { return }
         let container = popover.containerView ?? referenceView
-        navigation.view.layoutIfNeeded()
         let frames = [shareItem, menuItem].compactMap { $0.frame(in: container) }
         guard frames.count == 2 else { return }
         let pillFrame = frames.reduce(CGRect.null) { $0.union($1) }
