@@ -38,6 +38,7 @@ class NoteViewModel {
 
     /// The ephemeral in-session text content.  Starts `""` on every fresh launch (FR-13, EC-01).
     private(set) var text: String
+    private(set) var populationRevision = 0
 
     // MARK: - Init
 
@@ -74,6 +75,7 @@ class NoteViewModel {
     /// in M3 source.
     func populate(_ newText: String) {
         apply(text: newText)
+        populationRevision &+= 1
     }
 
     // MARK: - Indent / outdent (FR-11)

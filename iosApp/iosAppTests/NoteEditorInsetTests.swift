@@ -22,6 +22,91 @@ private final class TestSafeAreaWindow: UIWindow {
 
 @MainActor
 final class NoteEditorInsetTests: XCTestCase {
+    func testRestoringShortNoteResetsScrolledLongNoteWithoutOpeningKeyboard() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = makeScrolledEditor(in: window)
+        let model = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = NoteEditor.Coordinator(viewModel: model)
+
+        model.populate("Restored note")
+        coordinator.reconcileText(in: view)
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.text, "Restored note")
+        XCTAssertEqual(view.selectedRange, NSRange(location: 0, length: 0))
+        XCTAssertEqual(view.contentOffset.y, -view.adjustedContentInset.top, accuracy: 0.5)
+        XCTAssertFalse(view.isFirstResponder)
+    }
+
+    func testRestoringIdenticalTextStillRevealsBeginning() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = makeScrolledEditor(in: window)
+        let model = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = NoteEditor.Coordinator(viewModel: model)
+        model.updateText(view.text)
+        coordinator.reconcileText(in: view)
+        XCTAssertGreaterThan(view.contentOffset.y, 0)
+
+        model.populate(view.text)
+        coordinator.reconcileText(in: view)
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.selectedRange, NSRange(location: 0, length: 0))
+        XCTAssertEqual(view.contentOffset.y, -view.adjustedContentInset.top, accuracy: 0.5)
+    }
+
+    func testEditingAfterRestoreDoesNotResetSelectionOrScrollAgain() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = makeScrolledEditor(in: window)
+        let model = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = NoteEditor.Coordinator(viewModel: model)
+        model.populate(view.text)
+        coordinator.reconcileText(in: view)
+        view.layoutIfNeeded()
+        view.selectedRange = NSRange(location: 100, length: 0)
+        view.setContentOffset(CGPoint(x: 0, y: 200), animated: false)
+        view.layoutIfNeeded()
+        let offset = view.contentOffset
+        let selection = view.selectedRange
+
+        model.updateText(view.text)
+        coordinator.reconcileText(in: view)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.contentOffset, offset)
+        XCTAssertEqual(view.selectedRange, selection)
+    }
+
+    func testDetachedRestoreUsesInsetsFromFirstAttachedLayout() {
+        let view = NoteEditor.NoteTextView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        let model = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = NoteEditor.Coordinator(viewModel: model)
+        model.populate("Restored before attachment")
+        coordinator.reconcileText(in: view)
+        view.layoutIfNeeded()
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        window.addSubview(view)
+        view.contentInsetAdjustmentBehavior = .never
+        view.contentInset.top = 103
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.contentOffset.y, -103, accuracy: 0.5)
+        XCTAssertFalse(view.isFirstResponder)
+    }
+
+    private func makeScrolledEditor(in window: UIWindow) -> NoteEditor.NoteTextView {
+        let view = NoteEditor.NoteTextView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        window.addSubview(view)
+        view.contentInsetAdjustmentBehavior = .never
+        view.contentInset.top = 103
+        view.text = String(repeating: "A line of the previous note\n", count: 150)
+        view.selectedRange = NSRange(location: (view.text as NSString).length, length: 0)
+        view.layoutIfNeeded()
+        view.setContentOffset(CGPoint(x: 0, y: 400), animated: false)
+        return view
+    }
+
     func testNativeNavigationSafeAreaIsNotAddedToTextPadding() {
         let view = NoteEditor.NoteTextView()
         let safeAreaTops: [CGFloat] = [0, 20, 47, 59]

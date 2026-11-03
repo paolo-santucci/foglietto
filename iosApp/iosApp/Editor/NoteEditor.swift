@@ -27,6 +27,7 @@ private func applyFont(to textView: UITextView) {
 /// UIKit adjusts the scroll view for native navigation and safe areas. The text container
 /// adds only content padding. Reconciliation writes nothing but the inset, so text, selection, typing
 /// attributes, and scroll offset survive every tick (EC-12).
+/// Explicit population resets selection and reveals the beginning after an attached layout.
 ///
 /// `makeUIView` publishes the coordinator into `coordinatorBox.coordinator` (weak) so the
 /// toolbar closures can dispatch actions to it without UIKit coupling. `updateUIView` wires
@@ -66,10 +67,26 @@ struct NoteEditor: UIViewRepresentable {
     /// (EC-12). A detached view keeps the last applied inset rather than falling back to a
     /// constant (EC-24).
     final class NoteTextView: UITextView {
+        private var needsRestoredNoteScrollReset = false
+
+        func revealRestoredNote() {
+            selectedRange = NSRange(location: 0, length: 0)
+            needsRestoredNoteScrollReset = true
+            setNeedsLayout()
+        }
+
+        override func layoutSubviews() {
+            super.layoutSubviews()
+            guard needsRestoredNoteScrollReset, window != nil,
+                  bounds.width > 0, bounds.height > 0 else { return }
+            needsRestoredNoteScrollReset = false
+            setContentOffset(CGPoint(x: -adjustedContentInset.left, y: -adjustedContentInset.top), animated: false)
+        }
 
         override func didMoveToWindow() {
             super.didMoveToWindow()
             reconcileTopInset()
+            if needsRestoredNoteScrollReset { setNeedsLayout() }
         }
 
         override func safeAreaInsetsDidChange() {
@@ -118,7 +135,7 @@ struct NoteEditor: UIViewRepresentable {
         return textView
     }
 
-    /// Reconcile the system-default font, text, and the inset — each on divergence only.
+    /// Reconcile font, text, and inset on divergence; explicit population also resets the viewport.
     /// The font divergence check covers a live Dynamic Type change mid-session.
     func updateUIView(_ uiView: UITextView, context: Context) {
         let desired = UIFont.preferredFont(forTextStyle: .body)
@@ -127,9 +144,7 @@ struct NoteEditor: UIViewRepresentable {
             applyFont(to: uiView)
         }
 
-        if uiView.text != viewModel.text {
-            uiView.text = viewModel.text
-        }
+        context.coordinator.reconcileText(in: uiView)
 
         NoteEditor.reconcileInset(of: uiView)
 
@@ -186,6 +201,7 @@ struct NoteEditor: UIViewRepresentable {
         // MARK: Properties
 
         private let viewModel: NoteViewModel
+        private var populationRevision = 0
 
         /// Weak handle to the live text view, set by `makeUIView` right after construction.
         /// `nil`-safe after the view deallocates — no retain cycle (EC-13).
@@ -200,6 +216,15 @@ struct NoteEditor: UIViewRepresentable {
 
         init(viewModel: NoteViewModel) {
             self.viewModel = viewModel
+        }
+
+        func reconcileText(in textView: UITextView) {
+            if textView.text != viewModel.text {
+                textView.text = viewModel.text
+            }
+            guard populationRevision != viewModel.populationRevision else { return }
+            populationRevision = viewModel.populationRevision
+            (textView as? NoteTextView)?.revealRestoredNote()
         }
 
         // MARK: Action hooks (dispatched by BottomToolbar)
