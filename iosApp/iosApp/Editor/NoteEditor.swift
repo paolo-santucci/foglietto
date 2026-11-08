@@ -106,6 +106,44 @@ struct NoteEditor: UIViewRepresentable {
                 right: ChromeMetrics.chromeHorizontalInset
             )
         }
+
+        // MARK: Idle resting-offset invariant
+
+        /// Resting content-offset range for the given geometry: idle content may only sit
+        /// between the adjusted top anchor and the scrolled bottom anchor. Content that
+        /// fits the viewport collapses the range onto the top anchor alone.
+        static func restingRange(
+            contentSize: CGSize,
+            boundsHeight: CGFloat,
+            adjustedInset: UIEdgeInsets
+        ) -> ClosedRange<CGFloat> {
+            let top = -adjustedInset.top
+            let bottom = max(top, contentSize.height - boundsHeight + adjustedInset.bottom)
+            return top...bottom
+        }
+
+        /// Clamps a parked content offset back into the resting range so an idle editor
+        /// never hangs content above the top inset (paste overshoot, post-restore
+        /// relayout, keyboard dismissal). Guarded against attached layout only —
+        /// UIKit's caret scrolling while first responder and the user's own scrolling
+        /// (tracking/decelerating) are never touched, and valid offsets are not rewritten.
+        func clampIdleOffset() {
+            guard window != nil, bounds.width > 0, bounds.height > 0,
+                  !isTracking, !isDecelerating, !isFirstResponder else { return }
+            let range = Self.restingRange(
+                contentSize: contentSize,
+                boundsHeight: bounds.height,
+                adjustedInset: adjustedContentInset
+            )
+            guard !range.contains(contentOffset.y) else { return }
+            setContentOffset(
+                CGPoint(
+                    x: -adjustedContentInset.left,
+                    y: min(max(contentOffset.y, range.lowerBound), range.upperBound)
+                ),
+                animated: false
+            )
+        }
     }
 
     // MARK: UIViewRepresentable
@@ -256,6 +294,7 @@ struct NoteEditor: UIViewRepresentable {
             }
             viewModel.updateText(tv.text ?? "")
             mirrorUndoState()
+            (tv as? NoteTextView)?.clampIdleOffset()
         }
 
         /// Resign first responder on the live text view, dismissing the keyboard (FR-16).
@@ -275,6 +314,7 @@ struct NoteEditor: UIViewRepresentable {
             tv.undoManager?.endUndoGrouping()
             viewModel.updateText(tv.text ?? "")
             mirrorUndoState()
+            (tv as? NoteTextView)?.clampIdleOffset()
         }
 
         /// Assign the indent/outdent result back to the live text view (FR-17).
@@ -289,6 +329,7 @@ struct NoteEditor: UIViewRepresentable {
             tv.text = text
             tv.selectedRange = range
             mirrorUndoState()
+            (tv as? NoteTextView)?.clampIdleOffset()
         }
 
         /// Invoke the text view's native undo manager and mirror the reverted
@@ -305,6 +346,7 @@ struct NoteEditor: UIViewRepresentable {
             tv.undoManager?.undo()
             viewModel.updateText(tv.text ?? "")
             mirrorUndoState()
+            (tv as? NoteTextView)?.clampIdleOffset()
         }
 
         /// Re-derive the undoability state off the live text view and report it
@@ -366,6 +408,16 @@ struct NoteEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             viewModel.updateText(textView.text)
             mirrorUndoState()
+        }
+
+        // MARK: UIScrollViewDelegate — idle viewport settle
+
+        /// Watches every offset write UIKit performs while no editing session is active,
+        /// so the invariant in `NoteTextView.clampIdleOffset` also runs for adjustments
+        /// the coordinator's own mutation sites never cause — the late TextKit relayout
+        /// after a restore and UIKit's stale caret-scrolling on programmatic edits.
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            (scrollView as? NoteTextView)?.clampIdleOffset()
         }
     }
 }

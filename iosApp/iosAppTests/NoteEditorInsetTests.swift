@@ -202,4 +202,75 @@ final class NoteEditorInsetTests: XCTestCase {
         NoteEditor.reconcileInset(of: view)
         XCTAssertEqual(view.textContainerInset, applied)
     }
+
+    func testPasteWhileIdleRevealsFullContentFromRestingTop() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = NoteEditor.NoteTextView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        window.addSubview(view)
+        let model = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = NoteEditor.Coordinator(viewModel: model)
+        coordinator.textView = view
+        view.delegate = coordinator
+
+        UIPasteboard.general.string = "First pasted line\nSecond pasted line"
+        coordinator.pasteAtCaret()
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.text, "First pasted line\nSecond pasted line")
+        XCTAssertEqual(
+            view.selectedRange,
+            NSRange(location: (view.text as NSString).length, length: 0)
+        )
+        XCTAssertEqual(view.contentOffset.y, -view.adjustedContentInset.top, accuracy: 0.5)
+        XCTAssertFalse(view.isFirstResponder)
+    }
+
+    func testIdleOffsetAboveRestingRangeClampsBack() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = makeScrolledEditor(in: window)
+        XCTAssertEqual(view.contentOffset.y, 400, accuracy: 0.5)
+        let coordinator = NoteEditor.Coordinator(viewModel: NoteViewModel(settings: StubSettingsRepository()))
+        view.delegate = coordinator
+
+        view.setContentOffset(CGPoint(x: 0, y: -500), animated: false)
+
+        XCTAssertEqual(view.contentOffset.y, -103, accuracy: 0.5)
+        XCTAssertFalse(view.isFirstResponder)
+    }
+
+    func testEditingSessionOffsetIsNeverClamped() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = NoteEditor.NoteTextView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        window.addSubview(view)
+        view.contentInsetAdjustmentBehavior = .never
+        view.contentInset.top = 103
+        view.text = String(repeating: "Line\n", count: 5)
+        view.layoutIfNeeded()
+        view.becomeFirstResponder()
+
+        view.setContentOffset(CGPoint(x: 0, y: -500), animated: false)
+        view.clampIdleOffset()
+
+        XCTAssertEqual(view.contentOffset.y, -500, accuracy: 0.5)
+    }
+
+    func testRestingRangeCollapsesShortContentToTopAnchor() {
+        let range = NoteEditor.NoteTextView.restingRange(
+            contentSize: CGSize(width: 390, height: 200),
+            boundsHeight: 600,
+            adjustedInset: UIEdgeInsets(top: 103, left: 0, bottom: 0, right: 0)
+        )
+        XCTAssertEqual(range.lowerBound, -103, accuracy: 0.5)
+        XCTAssertEqual(range.upperBound, -103, accuracy: 0.5)
+    }
+
+    func testRestingRangeCoversScrolledTallContent() {
+        let range = NoteEditor.NoteTextView.restingRange(
+            contentSize: CGSize(width: 390, height: 2000),
+            boundsHeight: 600,
+            adjustedInset: UIEdgeInsets(top: 103, left: 0, bottom: 14, right: 0)
+        )
+        XCTAssertEqual(range.lowerBound, -103, accuracy: 0.5)
+        XCTAssertEqual(range.upperBound, 1414, accuracy: 0.5)
+    }
 }
