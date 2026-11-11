@@ -41,6 +41,11 @@ Pods/
 .swiftpm/
 iosApp/SharedPackage/.build/
 
+# Android build outputs
+androidApp/build/
+*.apk
+*.aab
+
 # Secrets — never commit; provisioned via CI secrets
 *.keystore
 *.jks

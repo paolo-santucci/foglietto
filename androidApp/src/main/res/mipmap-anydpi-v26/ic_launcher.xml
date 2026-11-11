@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive launcher icon (TASK-12, FR-41 / OQ-05) — the mipmap <application android:icon>
+    resolves to on API 26+ (minSdk 26). Layers: brand-light background (@color/brand_yellow) + the
+    brand-dark sheet vector, plus a <monochrome> layer for themed icons (S11).
+
+    <monochrome> is read only by API 33+ launchers; the adaptive-icon parser ignores unknown child
+    elements on older releases, so declaring it here is safe for every API this app supports. It
+    reuses the foreground vector — a monochrome layer is an alpha mask the system tints, so the
+    mark's shape is the whole contract and duplicating the path would only create a second copy to
+    keep in sync. Final icon production belongs to the later Play wave (OQ-05).
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

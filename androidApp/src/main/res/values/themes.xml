@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The app's platform theme (I7) — the light half.
+
+    Why this file exists: without `android:theme` the Activity inherits the framework default,
+    whose action-bar-enabled, pre-lollipop-coloured window background flashes before Compose
+    draws its first frame. The theme is *platform* only — every colour the UI actually paints
+    comes from the Material 3 scheme in `ui/theme/Theme.kt`; this file just makes the window
+    behind the first frame indistinguishable from the editor canvas (canon §Scheme matrix:
+    light `#FFFFFF`).
+
+    Parent: `android:Theme.DeviceDefault.Light.NoActionBar` (API 14+, so every API from minSdk 26
+    is covered). The review's preferred `Theme.DeviceDefault.DayNight.NoActionBar` is API 29+ and
+    would crash the launch on API 26–28; the day/night split is therefore expressed the
+    resource-qualifier way — this file is day, `values-night/themes.xml` is night.
+
+    No `app_name`, no splash API, no new dependency: identity in the launcher, surface in the
+    window, nothing else.
+-->
+<resources>
+
+    <style name="Theme.Foglietto" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+        <!-- The editor canvas: canon §Scheme matrix light column (`view-bg-color` ≈ #fff). -->
+        <item name="android:windowBackground">#FFFFFF</item>
+    </style>
+
+</resources>

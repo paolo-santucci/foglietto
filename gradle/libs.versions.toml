@@ -1,5 +1,12 @@
 [versions]
-kotlin = "2.1.21"
+agp = "9.0.1"
+kotlin = "2.4.21"
+composeBom = "2026.06.00"
+coreKtx = "1.18.0"
+activityCompose = "1.12.0"
+lifecycleProcess = "2.10.0"
+junit = "4.13.2"
+robolectric = "4.17"
 okio = "3.9.1"
 multiplatformSettings = "1.2.0"
 
@@ -7,6 +14,19 @@ multiplatformSettings = "1.2.0"
 okio = { module = "com.squareup.okio:okio", version.ref = "okio" }
 multiplatform-settings = { module = "com.russhwolf:multiplatform-settings", version.ref = "multiplatformSettings" }
 kotlin-test = { module = "org.jetbrains.kotlin:kotlin-test", version.ref = "kotlin" }
+compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
+androidx-ui = { module = "androidx.compose.ui:ui" }
+androidx-material3 = { module = "androidx.compose.material3:material3" }
+androidx-material-icons-extended = { module = "androidx.compose.material:material-icons-extended" }
+androidx-compose-ui-tooling-preview = { module = "androidx.compose.ui:ui-tooling-preview" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "coreKtx" }
+androidx-activity-compose = { module = "androidx.activity:activity-compose", version.ref = "activityCompose" }
+androidx-lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycleProcess" }
+junit = { module = "junit:junit", version.ref = "junit" }
+robolectric = { module = "org.robolectric:robolectric", version.ref = "robolectric" }
 
 [plugins]
 kotlinMultiplatform = { id = "org.jetbrains.kotlin.multiplatform", version.ref = "kotlin" }
+androidApplication = { id = "com.android.application", version.ref = "agp" }
+androidKotlinMultiplatformLibrary = { id = "com.android.kotlin.multiplatform.library", version.ref = "agp" }
+composeCompiler = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }

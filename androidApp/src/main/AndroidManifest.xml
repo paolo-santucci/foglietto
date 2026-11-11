@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Least-privilege manifest (TASK-03, FR-01/FR-03, NFR-04).
+
+    - Zero <uses-permission> declarations: Foglietto asks the platform for nothing. The recovery
+      store is the app's own private storage; sharing goes out through ACTION_SEND (TASK-16), which
+      needs no permission.
+    - Exactly one exported activity: the launcher. Nothing else is exported.
+    - android:name=".FogliettoApplication" — the single composition root (TASK-18): it builds the
+      process graph once and registers the ProcessLifecycleOwner observer, so no Activity owns
+      save/reset.
+    - android:allowBackup="false" — the buffer is ephemeral by product contract; it must never be
+      resurrected by the platform's backup/restore, only by the app's own 10-note recovery store.
+    - android:windowSoftInputMode="adjustResize" — the editor + circular action row stay visible
+      above the IME (NFR-04; edge-to-edge layout is applied by enableEdgeToEdge() in MainActivity).
+    - android:label="Foglietto" — the product name is a proper noun shared verbatim with the iOS
+      CFBundleName, so it is NOT a string resource and the 17-key inventory (FR-36, OQ-21) stays
+      closed. `app_name` remains absent on purpose.
+    - android:theme="@style/Theme.Foglietto" — the project's own platform theme (values/themes.xml +
+      values-night/themes.xml): no action bar, and a window background equal to the editor surface,
+      so the window before the first Compose frame is already the editor's colour instead of a
+      framework default. The Compose Material 3 scheme (FogliettoTheme) is separate and unchanged.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application
+        android:name=".FogliettoApplication"
+        android:allowBackup="false"
+        android:icon="@mipmap/ic_launcher"
+        android:label="Foglietto"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:theme="@style/Theme.Foglietto">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+
+</manifest>

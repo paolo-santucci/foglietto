@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Brand colour resources (S11) — the two canon §Colour & branding tokens
+    (ui-design-bible §Colour & branding tokens, `metainfo.xml:42-45`) as named values, so the
+    launcher vector, the adaptive-icon background and any future identity asset reference a token
+    instead of restating the hex literal in each file.
+
+    Identity/launch colours only: the canon is explicit that branding colours never tint the
+    editing surface, and `ui/theme/Color.kt` documents the same rule for the Compose side.
+-->
+<resources>
+
+    <!-- GNOME "Yellow 3" — branding primary (light): the adaptive-icon background layer. -->
+    <color name="brand_yellow">#F6D32D</color>
+
+    <!-- GNOME "Brown 5" — branding primary (dark): the ink of the launcher mark. -->
+    <color name="brand_brown">#873000</color>
+
+</resources>

@@ -16,3 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = "foglietto"
 include(":shared")
+include(":androidApp")

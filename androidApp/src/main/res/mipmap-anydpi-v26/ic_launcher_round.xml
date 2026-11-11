@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Round adaptive launcher icon (TASK-12, FR-41 / OQ-05) — target of <application
+    android:roundIcon>. Launchers request this on masked/round devices; the layer set is identical
+    to ic_launcher, foreground mark included (<monochrome> for themed icons, S11), and the mark
+    already sits inside the safe circle so a round mask never clips the sheet.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@drawable/ic_launcher_foreground" />
+    <monochrome android:drawable="@drawable/ic_launcher_foreground" />
+</adaptive-icon>

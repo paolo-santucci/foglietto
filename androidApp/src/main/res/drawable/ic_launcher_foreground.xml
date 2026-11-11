@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Adaptive launcher icon — foreground layer (TASK-12, FR-41 / OQ-05).
+
+    A "foglio" (sheet) mark: one filled path, drawn in the canon brand DARK token over the brand
+    LIGHT background. The ink references `@color/brand_brown` (S11) instead of restating #873000,
+    so the mark, the palette resource and the icon test can never drift apart.
+
+    The ruled lines and the folded corner are carved out of the same path with fillType="evenOdd"
+    (API 24+, minSdk 26), so the mark is genuinely transparent — it never paints over the
+    background layer and stays correct if the background variant changes.
+
+    Geometry is kept inside the 66dp adaptive-icon safe circle (centre 54,54; radius 33) so no
+    launcher mask (circle, squircle, rounded square) clips the sheet: corners at (37,28) and
+    (71,80) sit at 31.1dp from centre.
+
+    This vector doubles as the <monochrome> layer of both adaptive icons: a monochrome layer is
+    consumed as an alpha mask and tinted by the system, so the mark's shape (including the carved
+    rules) is exactly what a themed icon needs, with no duplicated geometry.
+
+    CANON GAP: ui-design-bible §Iconography documents the in-app symbolic icon set only — it
+    carries no launcher/mark specification. This vector is therefore a faithful derivation of the
+    existing Foglietto sheet identity per OQ-05, not a traced canon asset; final icon production
+    belongs to the later Play wave.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <path
+        android:fillColor="@color/brand_brown"
+        android:fillType="evenOdd"
+        android:pathData="M37,28 L60,28 L71,39 L71,80 L37,80 Z M60,28 L71,39 L60,39 Z M44,44 L64,44 L64,49 L44,49 Z M44,55 L64,55 L64,60 L44,60 Z M44,66 L58,66 L58,71 L44,71 Z" />
+</vector>

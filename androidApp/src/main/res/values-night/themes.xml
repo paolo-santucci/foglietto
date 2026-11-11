@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    The app's platform theme — the night half (see `values/themes.xml` for why the theme exists).
+
+    Parent: `android:Theme.DeviceDefault.NoActionBar` (the dark/default DeviceDefault, API 14+) —
+    the dark counterpart of the day parent, which is how this project expresses DayNight while
+    keeping minSdk 26 (`Theme.DeviceDefault.DayNight` itself is API 29+).
+
+    The window background is the editor's dark canvas. `ui/theme/Color.kt` currently carries
+    `EditorSurfaceDark = #202020` while the canon's §Scheme matrix names `near-#1C1B1F`; this value
+    follows the canon/spec instruction. The mismatch is cosmetic (the window background is only
+    visible for the first frame, before the Scaffold paints the Compose surface) and is reported
+    rather than silently reconciled here — changing the editor canvas token is a design decision.
+-->
+<resources>
+
+    <style name="Theme.Foglietto" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">#1C1B1F</item>
+    </style>
+
+</resources>

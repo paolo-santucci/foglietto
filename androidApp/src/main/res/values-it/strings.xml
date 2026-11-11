@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Foglietto — italiana, stessa inventory di 17 chiavi di values/strings.xml (FR-36, NFR-06).
+
+    I valori sono ripresi pari pari da iosApp/iosApp/Localizable.xcstrings dove la chiave
+    esiste ancora (compreso l'apostrofo tipografico di «Svuota l’editor»); `redo` e
+    `editor_cleared` sono le due chiavi nuove, scritte qui.
+
+    `restore_note_label` mantiene entrambi i segnaposto posizionali: %1$s = anteprima nota,
+    %2$s = sottotitolo con data di salvataggio.
+-->
+<resources>
+
+    <string name="clear_editor">Svuota l’editor</string>
+    <string name="about">Informazioni</string>
+    <string name="undo">Annulla</string>
+    <string name="redo">Ripeti</string>
+    <string name="indent">Aumenta rientro</string>
+    <string name="outdent">Riduci rientro</string>
+    <string name="menu">Menu</string>
+    <string name="open_menu">Apri il menu</string>
+    <string name="recent_notes">Note recenti</string>
+    <string name="no_recent_notes">Nessuna nota recente.</string>
+    <string name="restore_note_label">Ripristina nota: %1$s, salvata il %2$s</string>
+    <string name="restore_this_note">Ripristina questa nota</string>
+    <string name="share">Condividi</string>
+    <string name="share_text">Condividi il testo</string>
+    <string name="report_an_issue">Segnala un problema</string>
+    <string name="website">Sito web</string>
+    <string name="editor_cleared">Editor svuotato</string>
+
+</resources>

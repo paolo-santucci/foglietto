@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Foglietto — default (English) copy, OQ-21 pinned inventory (FR-36, NFR-06).
+
+    Exactly 17 keys, mirrored 1:1 by values-it/strings.xml and pinned by StringInventoryTest.
+    The two Android-only keys are `redo` and `editor_cleared`; the remaining 15 are the
+    Localizable.xcstrings keys that survived the copy/paste/hide-keyboard drop.
+
+    `restore_note_label` is the recovery-row accessibility label: %1$s = note preview,
+    %2$s = saved-at subtitle. No `app_name` key here: the manifest does not reference one.
+-->
+<resources>
+
+    <string name="clear_editor">Clear editor</string>
+    <string name="about">About</string>
+    <string name="undo">Undo</string>
+    <string name="redo">Redo</string>
+    <string name="indent">Indent</string>
+    <string name="outdent">Outdent</string>
+    <string name="menu">Menu</string>
+    <string name="open_menu">Open menu</string>
+    <string name="recent_notes">Recent notes</string>
+    <string name="no_recent_notes">No recent notes.</string>
+    <string name="restore_note_label">Restore note: %1$s, saved %2$s</string>
+    <string name="restore_this_note">Restore this note</string>
+    <string name="share">Share</string>
+    <string name="share_text">Share text</string>
+    <string name="report_an_issue">Report an issue</string>
+    <string name="website">Website</string>
+    <string name="editor_cleared">Editor cleared</string>
+
+</resources>
