@@ -14,6 +14,47 @@ plugins {
     alias(libs.plugins.composeCompiler)
 }
 
+// ---------------------------------------------------------------------------
+// Release identity and release signing are environment-driven; the tree carries
+// neither a version number to bump per release nor any secret material.
+//
+// ANDROID_VERSION_CODE / ANDROID_VERSION_NAME
+//   Play requires a versionCode that increases with every upload, so the release
+//   workflow derives it from GITHUB_RUN_NUMBER (+ operator offset) instead of
+//   editing this file. Locally both fall back to the development defaults.
+//   2100000000 is Play's hard ceiling on versionCode.
+//
+// ANDROID_KEYSTORE_PATH / ANDROID_KEYSTORE_PASSWORD / ANDROID_KEY_ALIAS /
+// ANDROID_KEY_PASSWORD
+//   The upload key, decoded by the workflow from GitHub secrets onto the runner.
+//   When all four are present the release build type is signed with them.
+//   When any is absent (local builds, pull requests without secrets) the release
+//   build type stays UNSIGNED on purpose: a debug-signed AAB is rejected by Play
+//   and must never look uploadable.
+// ---------------------------------------------------------------------------
+val maxPlayVersionCode = 2_100_000_000
+
+val releaseVersionCode: Int? = System.getenv("ANDROID_VERSION_CODE")?.let { raw ->
+    val parsed = raw.toIntOrNull()
+    check(parsed != null && parsed in 1..maxPlayVersionCode) {
+        "ANDROID_VERSION_CODE must be an integer in 1..$maxPlayVersionCode (got '$raw')"
+    }
+    parsed
+}
+
+val releaseVersionName: String? = System.getenv("ANDROID_VERSION_NAME")?.let { raw ->
+    check(raw.isNotBlank()) { "ANDROID_VERSION_NAME must not be blank" }
+    raw
+}
+
+val releaseSigningValues = listOf(
+    System.getenv("ANDROID_KEYSTORE_PATH"),
+    System.getenv("ANDROID_KEYSTORE_PASSWORD"),
+    System.getenv("ANDROID_KEY_ALIAS"),
+    System.getenv("ANDROID_KEY_PASSWORD"),
+)
+val hasReleaseSigning = releaseSigningValues.all { !it.isNullOrBlank() }
+
 android {
     // applicationId == namespace == the retained product identity (OQ-03).
     namespace = "com.paolosantucci.foglietto"
@@ -23,9 +64,29 @@ android {
         applicationId = "com.paolosantucci.foglietto"
         minSdk = 26
         targetSdk = 36
-        // Placeholders until the Play release wiring lands (OQ-04).
-        versionCode = 1
-        versionName = "1.0.0"
+        versionCode = releaseVersionCode ?: 1
+        versionName = releaseVersionName ?: "1.0.0"
+    }
+
+    // Only created when the workflow supplied the upload key, so a clean clone
+    // with ANDROID_HOME alone still configures and builds (debug APK, check).
+    signingConfigs {
+        if (hasReleaseSigning) {
+            create("release") {
+                storeFile = file(System.getenv("ANDROID_KEYSTORE_PATH")!!)
+                storePassword = System.getenv("ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
+
+    buildTypes {
+        release {
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.getByName("release")
+            }
+        }
     }
 
     buildFeatures {

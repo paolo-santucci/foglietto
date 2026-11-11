@@ -17,9 +17,11 @@ import org.junit.Test
  *    modules; every declared `targetSdk` in the tree is 36. The app module is the only one whose
  *    `targetSdk` is an install-time contract (an AAR's `targetSdk` is inert for consumers), so
  *    `shared/` is pinned on `compileSdk`/`minSdk` only.
- *  - **No local machine state** — no `local.properties` and no signing material (`keystore`,
- *    `storeFile`, `storePassword`, `keyAlias`, `keyPassword`, `signingConfig`) may be referenced.
- *    A clean clone on Linux/JDK 17 must assemble the debug APK with `ANDROID_HOME` alone.
+ *  - **No local machine state** — no `local.properties` may be referenced and no keystore path may
+ *    be hard-coded: a clean clone on Linux/JDK 17 must assemble the debug APK with `ANDROID_HOME`
+ *    alone. Release signing is allowed, but only as an env-gated configuration whose key material
+ *    arrives from CI secrets (`ANDROID_KEYSTORE_PATH` and friends); the tree itself names no
+ *    keystore file and falls back to an unsigned release build when the env is absent.
  *  - **AGP-9 toolchain** — the legacy `org.jetbrains.kotlin.android` plugin is never applied and
  *    `kotlinOptions` never appears (AGP 9 has built-in Kotlin and follows `compileOptions`); every
  *    plugin is reached through the version catalog (`alias(libs.plugins.…)`).
@@ -90,16 +92,68 @@ class BuildContractTest {
     }
 
     @Test
-    fun `the build scripts never depend on local properties or keystore material`() {
+    fun `the build scripts never depend on local properties`() {
         listOf(appBuildFile to appBuild, sharedBuildFile to sharedBuild).forEach { (file, code) ->
-            FORBIDDEN_MACHINE_STATE.forEach { token ->
-                assertFalse(
-                    "${file.name} must not reference '$token' — a clean clone must build with " +
-                        "ANDROID_HOME alone (FR-37).",
-                    code.lowercase().contains(token),
-                )
-            }
+            assertFalse(
+                "${file.name} must not reference local.properties — a clean clone must build " +
+                    "with ANDROID_HOME alone (FR-37).",
+                code.lowercase().contains("local.properties"),
+            )
         }
+    }
+
+    @Test
+    fun `release signing is environment-gated and names no committed keystore`() {
+        // The Play release wave signs the AAB, but the upload key lives in GitHub secrets and is
+        // decoded onto the runner. Three things keep that honest:
+        //  a) every signing input is read from an environment variable;
+        //  b) the store file is never a literal repo path (no `file("…keystore")`);
+        //  c) the release build type is only bound to the config when the env is complete, so a
+        //     clean clone still configures and builds an unsigned release.
+        listOf(
+            "ANDROID_KEYSTORE_PATH",
+            "ANDROID_KEYSTORE_PASSWORD",
+            "ANDROID_KEY_ALIAS",
+            "ANDROID_KEY_PASSWORD",
+        ).forEach { name ->
+            assertTrue(
+                "androidApp/build.gradle.kts must read $name from the environment " +
+                    "(secrets are never committed).",
+                appBuild.contains("""System.getenv("$name")"""),
+            )
+        }
+
+        assertFalse(
+            "androidApp/build.gradle.kts must not hard-code a keystore path: the store file must " +
+                "come from ANDROID_KEYSTORE_PATH, not from a file in the tree.",
+            Regex("""storeFile\s*=\s*file\(\s*"""").containsMatchIn(appBuild),
+        )
+        assertFalse(
+            "androidApp/build.gradle.kts must not name a keystore file — key material is provisioned " +
+                "by CI, never committed (FR-37).",
+            appBuild.contains(".keystore") || appBuild.contains(".jks"),
+        )
+
+        assertTrue(
+            "The release build type must bind the signing config only behind the env guard, so an " +
+                "unsigned release build still configures on a clean clone.",
+            appBuild.contains("if (hasReleaseSigning)") &&
+                appBuild.contains("""signingConfig = signingConfigs.getByName("release")"""),
+        )
+    }
+
+    @Test
+    fun `the version identity is overridable from CI without editing the tree`() {
+        // Play rejects a repeated versionCode, so the release workflow supplies a fresh one per
+        // run. A hard-coded versionCode would force a source edit before every upload.
+        assertTrue(
+            "androidApp/build.gradle.kts must read ANDROID_VERSION_CODE from the environment.",
+            appBuild.contains("""System.getenv("ANDROID_VERSION_CODE")"""),
+        )
+        assertTrue(
+            "androidApp/build.gradle.kts must read ANDROID_VERSION_NAME from the environment.",
+            appBuild.contains("""System.getenv("ANDROID_VERSION_NAME")"""),
+        )
     }
 
     @Test
@@ -232,16 +286,5 @@ class BuildContractTest {
 
         val TARGET_SDK = Regex("""(?m)^\s*targetSdk\s*=\s*(\d+)\s*$""")
         val BLOCK_COMMENT = Regex("""(?s)/\*.*?\*/""")
-
-        /** Machine-bound state that must never be required to build the debug APK. */
-        val FORBIDDEN_MACHINE_STATE = listOf(
-            "local.properties",
-            "keystore",
-            "storefile",
-            "storepassword",
-            "keyalias",
-            "keypassword",
-            "signingconfig",
-        )
     }
 }
