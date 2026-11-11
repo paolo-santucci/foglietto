@@ -27,10 +27,43 @@ jobs:
           java-version: 17
           cache: gradle
 
+      # Android SDK provisioning. shared/ carries an Android target (and
+      # androidApp/ follows), so Gradle configures AGP on this runner and dies
+      # with "SDK location not found" without a real SDK. Kept inline here, NOT
+      # as a second workflow: tool/m1_gate.sh check (f) rejects a separate
+      # `android` workflow file, tracked or merely present on disk (FR-39).
+      # setup-android installs cmdline-tools + platform-tools, accepts the SDK
+      # licences and exports ANDROID_HOME / ANDROID_SDK_ROOT via $GITHUB_ENV.
+      # Third-party action, so it is pinned to a full commit SHA (tag `v3`
+      # resolved once) rather than a mutable tag, and cmdline-tools-version is
+      # pinned to that release's own build so a runner image change cannot
+      # silently move the SDK tooling (NFR-11).
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          cmdline-tools-version: "15859902"
+          accept-android-sdk-licenses: true
+          packages: platform-tools
+
+      # Pins the SDK components AGP compiles against (compileSdk 36 + the
+      # matching build-tools). Re-emits both SDK root variables into
+      # $GITHUB_ENV so every later Gradle step resolves the same root through
+      # the environment rather than through PATH order alone.
+      # A tool/m8_gate.sh step covering the Android structural invariants
+      # arrives in TASK-24 (sp-20261111) and will sit after the gate steps
+      # below — forward reference, nothing to run yet.
+      - name: Install Android SDK components
+        run: |
+          : "${ANDROID_HOME:?setup-android did not export ANDROID_HOME}"
+          echo "ANDROID_HOME=$ANDROID_HOME" >> "$GITHUB_ENV"
+          echo "ANDROID_SDK_ROOT=$ANDROID_HOME" >> "$GITHUB_ENV"
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
       # ./gradlew check runs all enabled verification tasks on all targets
-      # that the ubuntu-latest runner can build (JVM-side only — no Xcode
-      # toolchain here). This covers commonTest (via allTests) and jvmTest
-      # for the shared/ module (NFR-07, MC-03).
+      # that the ubuntu-latest runner can build (JVM and Android targets — no
+      # Xcode toolchain here). This covers commonTest (via allTests) and
+      # jvmTest for the shared/ module (NFR-07, MC-03).
       - name: Run Gradle checks
         run: ./gradlew check --no-daemon
 
@@ -115,3 +148,24 @@ jobs:
       # Spec refs: qp-20260621 §3.1; C-03, C-06, C-07, C-08; EC-14; NFR-01/02/03/04.
       - name: SP Chrome Morph gate
         run: bash tool/sp_chrome_morph_gate.sh
+
+      # M8 Android structural gate (sp-20261111-android-compose-app, TASK-24):
+      # enforces the §7.2 Android invariants that m1–m7 do not cover — shared
+      # commonMain/androidMain purity (0 display strings, 0 android/androidx and
+      # 0 androidx.compose imports), no org.jetbrains.kotlin.android anywhere,
+      # no .github/workflows/android.yml tracked or on disk, compileSdk/targetSdk
+      # 36 + minSdk 26, EN/IT string-key parity, source-manifest least privilege
+      # (0 <uses-permission>, no INTERNET, merged manifest never scanned),
+      # app-private storage only, restore-only recovery (0 delete call sites),
+      # no androidApp/src/androidTest source set, one animator-scale reader, one
+      # ProcessLifecycleOwner site, a graph-free MainActivity, numeric-resource
+      # only Text/contentDescription sinks, imePadding() on the action row, no
+      # Compose dependency in shared/, no okio import in androidApp/, the
+      # composition-root init order, no editor-state persistence, no Find
+      # affordance, the launcher icon, and no committed local.properties/keystore.
+      # Source-scan only (no Gradle of its own); it chains m1+m4+m5+m6+m7 so no
+      # earlier invariant can regress while this step is green.
+      # Spec refs: FR-02, FR-04, FR-06, FR-30, FR-35, FR-39, FR-40, FR-41;
+      # NFR-04, NFR-06, NFR-07, NFR-09; OQ-15, OQ-20.
+      - name: M8 Android structural gate
+        run: bash tool/m8_gate.sh
