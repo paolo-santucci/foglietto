@@ -200,6 +200,56 @@ final class RecoveryListViewModelTests: XCTestCase {
     }
 
     // -----------------------------------------------------------------------
+    // MARK: - Subtitle delegation to the shared formatter (FR-09 / TASK-15)
+
+    /// The row subtitle IS the shared Kotlin `RecoveryInstant.formatSubtitle()` output.
+    ///
+    /// RED before TASK-15: `RecoveryListViewModel` carried a private Swift
+    /// `subtitle(from:)` formatter. The expectation is byte-identical — this pins the
+    /// delegation, not a format change.
+    func test_rowSubtitle_comesFromTheSharedFormatter() {
+        let recovery = ControlledRecoveryRepository()
+        let note = makeNote(
+            path: "/shared/format.txt", preview: "Shared",
+            year: 2026, month: 5, day: 4, hour: 9, minute: 7
+        )
+        recovery.listResult = [note]
+        let vm = makeVM(recovery: recovery)
+
+        vm.refresh()
+
+        XCTAssertEqual(vm.rows.count, 1, "precondition: one row after refresh")
+        XCTAssertEqual(
+            vm.rows[0].dateSubtitle,
+            note.savedAt.formatSubtitle(),
+            "dateSubtitle must be the shared formatSubtitle() output (FR-09 / TASK-15)"
+        )
+        XCTAssertEqual(
+            vm.rows[0].dateSubtitle, "2026-05-04 09:07",
+            "shared formatter keeps the zero-padded YYYY-MM-DD HH:MM contract (TASK-05 vectors)"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - Share gating delegates to the shared predicate (FR-09 / TASK-15)
+
+    /// `ChromeBarCoordinator` gates Share with the shared `canShare(text:)`.
+    ///
+    /// This pins the exported Swift symbol and its trim semantics; the behavioural
+    /// proof that the toolbar button follows it is the existing
+    /// `ChromeBarCoordinatorTests.testShareTracksWhitespaceAndEditedNote` (unchanged).
+    func test_shareGating_matchesTheSharedPredicate() {
+        XCTAssertTrue(ShareGateKt.canShare(text: "hello"),
+            "non-empty text is shareable")
+        XCTAssertTrue(ShareGateKt.canShare(text: "  x  "),
+            "surrounding whitespace does not block sharing")
+        XCTAssertFalse(ShareGateKt.canShare(text: ""),
+            "the empty buffer is not shareable")
+        XCTAssertFalse(ShareGateKt.canShare(text: " \n\t"),
+            "whitespace- and newline-only buffers are not shareable (trim semantics)")
+    }
+
+    // -----------------------------------------------------------------------
     // MARK: - select(path:) — happy path (FR-13)
 
     /// select(path:) with stub read=="hello" → populate("hello") called once.

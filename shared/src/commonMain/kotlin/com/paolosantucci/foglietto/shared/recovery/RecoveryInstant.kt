@@ -33,4 +33,34 @@ data class RecoveryInstant(
     val minute: Int,
     val second: Int,
     val millis: Int,
-)
+) {
+
+    /**
+     * Renders the calendar fields as the recovery-row subtitle `"YYYY-MM-DD HH:MM"` — i.e.
+     * `%04d-%02d-%02d %02d:%02d` over ([year], [month], [day], [hour], [minute]).
+     *
+     * Promoted from Swift so both front-ends share one formatter (FR-07): this replaces the
+     * private `subtitle(from:)` in `iosApp/iosApp/Chrome/RecoveryListViewModel.swift`, whose
+     * `String(format: "%04d-%02d-%02d %02d:%02d", …)` output is byte-identical, and it feeds
+     * the Android `RecoveryRow` subtitle.
+     *
+     * * Zero-padded to the stated width; the year widens to 4 digits and is never truncated.
+     * * [second] and [millis] are **excluded** — the subtitle is minute-precise, so
+     *   `23:59:59.999` renders as `23:59` (truncation, never rounding or rollover).
+     * * Pure common Kotlin (`padStart`) — no `Date`, no platform date API, no epoch
+     *   arithmetic (NFR-06). Total function: no error path.
+     *
+     * @return a 16-character `"YYYY-MM-DD HH:MM"` string for every non-negative calendar field set.
+     */
+    fun formatSubtitle(): String {
+        val yearText = year.zeroPadded(4)
+        val monthText = month.zeroPadded(2)
+        val dayText = day.zeroPadded(2)
+        val hourText = hour.zeroPadded(2)
+        val minuteText = minute.zeroPadded(2)
+        return "$yearText-$monthText-$dayText $hourText:$minuteText"
+    }
+}
+
+/** Left-pads this non-negative field with `0` up to [width] digits, mirroring `%0Nd`. */
+private fun Int.zeroPadded(width: Int): String = toString().padStart(width, '0')

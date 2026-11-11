@@ -6,7 +6,8 @@
 // Maps each RecoveryNote to a RecoveryRow for display.
 // Restore-on-tap only — no delete, delete-all, or confirm dialog (FR-14).
 //
-// RecoveryInstant → subtitle is formatted in Swift from the 7 Int fields.
+// RecoveryInstant → subtitle comes from the shared Kotlin `formatSubtitle()`.
+// No local formatter: the rule is delegated to `shared` (FR-09 / TASK-15).
 // NO Date is used; NO epoch arithmetic is used (NFR-06).
 // RecoveryRepository is called DIRECTLY (no read-side use case; no okio import).
 //
@@ -24,8 +25,8 @@ import shared
 /// `path` is the stable identity key (used as the argument to `select(path:)`).
 /// `previewTitle` is the first ≤80 UTF-16 characters of the note (one-line, no newline —
 ///   guaranteed by the shared `RecoveryPreview.truncate` contract).
-/// `dateSubtitle` is a "YYYY-MM-DD HH:MM" string derived in Swift from the 7 Int
-///   fields of `RecoveryInstant.savedAt` — NO `Date`, NO epoch arithmetic (NFR-06).
+/// `dateSubtitle` is the shared `RecoveryInstant.formatSubtitle()` output —
+///   "YYYY-MM-DD HH:MM", NO `Date`, NO epoch arithmetic (NFR-06, FR-09).
 struct RecoveryRow: Identifiable {
     /// Stable identity for `ForEach` keying and for the `select(path:)` call.
     var id: String { path }
@@ -36,8 +37,8 @@ struct RecoveryRow: Identifiable {
     /// Single-line preview title (≤80 UTF-16, no newline — FR-12 / §5.1.c).
     let previewTitle: String
 
-    /// Date subtitle derived from `RecoveryInstant` 7 Int fields.
-    /// Format: "YYYY-MM-DD HH:MM" (implementation detail per OQ-06).
+    /// Date subtitle produced by the shared `RecoveryInstant.formatSubtitle()`.
+    /// Format: "YYYY-MM-DD HH:MM" (one shared implementation — FR-09).
     /// No `Date`, no epoch math (NFR-06).
     let dateSubtitle: String
 }
@@ -107,15 +108,15 @@ final class RecoveryListViewModel {
     ///
     /// Each `RecoveryNote` is mapped to a `RecoveryRow` with:
     ///   - `previewTitle` set to `note.preview` (≤80 UTF-16, single line — §5.1.c).
-    ///   - `dateSubtitle` formatted in Swift from `note.savedAt`'s 7 Int fields
-    ///     (year/month/day/hour/minute — no `Date`, no epoch math — NFR-06).
+    ///   - `dateSubtitle` taken from the shared `note.savedAt.formatSubtitle()`
+    ///     (delegated to Kotlin — no local formatting, FR-09).
     func refresh() {
         let notes = recovery.list()
         rows = notes.map { note in
             RecoveryRow(
                 path: note.path,
                 previewTitle: note.preview,
-                dateSubtitle: subtitle(from: note.savedAt)
+                dateSubtitle: note.savedAt.formatSubtitle()
             )
         }
     }
@@ -145,32 +146,5 @@ final class RecoveryListViewModel {
         }
         // FR-13: non-keystroke-origin restore via populate(_:).
         noteViewModel.populate(text)
-    }
-
-    // MARK: - Private: RecoveryInstant → subtitle (NFR-06 / FR-12)
-
-    /// Format a `RecoveryInstant` into a short date+time string.
-    ///
-    /// Format: "YYYY-MM-DD HH:MM" (implementation detail — OQ-06 leaves the
-    /// exact format to the implementor; the contract is non-empty, non-epoch,
-    /// derived solely from the 7 Int fields).
-    ///
-    /// **No `Date` is constructed.** **No epoch arithmetic is used.** The 7 Int
-    /// fields are read directly and formatted with zero-padding (NFR-06).
-    ///
-    /// - Parameter instant: The `RecoveryInstant` from `RecoveryNote.savedAt`.
-    /// - Returns: A non-empty string suitable for a list row subtitle.
-    private func subtitle(from instant: RecoveryInstant) -> String {
-        // Directly read the 7 Int fields — no Date, no epoch math (NFR-06).
-        let year   = Int(instant.year)
-        let month  = Int(instant.month)
-        let day    = Int(instant.day)
-        let hour   = Int(instant.hour)
-        let minute = Int(instant.minute)
-        // second and millis are not shown in the subtitle (YYYY-MM-DD HH:MM is sufficient).
-        return String(
-            format: "%04d-%02d-%02d %02d:%02d",
-            year, month, day, hour, minute
-        )
     }
 }

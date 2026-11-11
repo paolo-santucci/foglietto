@@ -220,8 +220,9 @@ elif [[ ! -f "$menu_bubble_file" ]]; then
     result "share-empty-gate" fail "$menu_bubble_file not found on disk (FR-20)"
 elif ! xgrep_q 'SystemSharePresenter\.present\(' "$chrome_overlay_file"; then
     result "share-empty-gate" fail "'SystemSharePresenter.present(' not found in $chrome_overlay_file (FR-20 — pill anchored-popover share missing)"
-elif ! xgrep_q 'shareItem\.isEnabled = !text\.trimmingCharacters\(in: \.whitespacesAndNewlines\)\.isEmpty' "$chrome_overlay_file"; then
-    result "share-empty-gate" fail "Native Share item empty-buffer gate missing"
+# FR-09: the chrome delegates the empty-buffer predicate to the shared module (ShareGateKt.canShare, preferred); the inline trimmingCharacters form is tolerated only during migration.
+elif ! { xgrep_q 'shareItem\.isEnabled = ShareGateKt\.canShare\(text:' "$chrome_overlay_file" || xgrep_q 'shareItem\.isEnabled = !text\.trimmingCharacters\(in: \.whitespacesAndNewlines\)\.isEmpty' "$chrome_overlay_file"; }; then
+    result "share-empty-gate" fail "Native Share item empty-buffer gate missing in $chrome_overlay_file (FR-09/FR-20 — expected 'shareItem.isEnabled = ShareGateKt.canShare(text:' (shared predicate, preferred) or the legacy inline 'shareItem.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty')"
 elif xgrep_q "ShareLink" "$menu_bubble_file"; then
     result "share-empty-gate" fail "'ShareLink' found in $menu_bubble_file (FR-20 — the panel Share row was removed per user direction; Share lives only on the pill)"
 else

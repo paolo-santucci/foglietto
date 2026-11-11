@@ -117,13 +117,14 @@ class PinchZoomGateTest {
     // -------------------------------------------------------------------------
 
     /**
-     * Gate C: the commonMain editor package must contain exactly three .kt files:
+     * Gate C: the commonMain editor package must contain exactly four .kt files:
      *   - LineIndent.kt   (M2 pre-existing)
      *   - ListContinuation.kt  (M2 pre-existing)
      *   - PinchZoom.kt    (M3 new — the sole M3 addition, NFR-05)
+     *   - ShareGate.kt    (TASK-05 promoted rule — canShare; not an M3 addition)
      *
-     * Any additional .kt file under this directory is an untracked M3 addition that
-     * violates the "sole M3 addition" constraint.
+     * Any additional .kt file under this directory is an untracked addition that
+     * violates the exact-set invariant (PinchZoom.kt stays the sole *M3* addition).
      */
     @Test
     fun gateC_pinchZoomIsOnlyM3AdditionInEditorPackage() {
@@ -132,7 +133,10 @@ class PinchZoomGateTest {
             "Gate C prereq FAILED — commonMain editor directory not found at: ${editorDir.absolutePath}."
         )
 
-        val expectedFiles = setOf("LineIndent.kt", "ListContinuation.kt", "PinchZoom.kt")
+        // ShareGate.kt joined the package in the Android-compose wave (TASK-05, FR-08):
+        // it is the promoted canShare predicate, not an M3 addition — PinchZoom.kt remains
+        // the sole M3-added file.
+        val expectedFiles = setOf("LineIndent.kt", "ListContinuation.kt", "PinchZoom.kt", "ShareGate.kt")
 
         val actualFiles = editorDir.listFiles()
             ?.filter { it.isFile && it.name.endsWith(".kt") }
@@ -145,7 +149,7 @@ class PinchZoomGateTest {
 
         val messages = mutableListOf<String>()
         if (unexpected.isNotEmpty()) {
-            messages += "Unexpected files (M3 adds only PinchZoom.kt; NFR-05): $unexpected"
+            messages += "Unexpected files (only PinchZoom.kt was M3-added; plus ShareGate.kt from TASK-05; NFR-05): $unexpected"
         }
         if (missing.isNotEmpty()) {
             messages += "Missing expected files: $missing"
@@ -154,7 +158,7 @@ class PinchZoomGateTest {
         if (messages.isNotEmpty()) {
             fail(
                 "Gate C FAILED — commonMain editor/ package contents diverge from expected " +
-                    "{LineIndent.kt, ListContinuation.kt, PinchZoom.kt}:\n" +
+                    "{LineIndent.kt, ListContinuation.kt, PinchZoom.kt, ShareGate.kt}:\n" +
                     messages.joinToString("\n")
             )
         }

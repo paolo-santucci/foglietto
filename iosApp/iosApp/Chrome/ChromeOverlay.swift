@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import Observation
+import shared
 
 @Observable
 final class CoordinatorBox {
@@ -105,7 +106,8 @@ final class ChromeBarCoordinator: NSObject, UIPopoverPresentationControllerDeleg
             menuItem.menu = NativeEditorMenu.make(menuVM: menuVM)
         }
         self.onUndo = onUndo
-        shareItem.isEnabled = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        // Share enablement is the shared predicate — no local trim (FR-08 / FR-09).
+        shareItem.isEnabled = ShareGateKt.canShare(text: text)
         if showsUndo != canUndo {
             showsUndo = canUndo
             updateGroups()

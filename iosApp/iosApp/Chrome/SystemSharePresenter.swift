@@ -1,11 +1,14 @@
 import UIKit
+import shared
 
 @MainActor
 enum SystemSharePresenter {
     static func present(text: String, from source: UIBarButtonItem, in presenting: UIViewController,
                         delegate: UIPopoverPresentationControllerDelegate? = nil,
                         configurePopover: (UIPopoverPresentationController) -> Void = { _ in }) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        // Belt-and-braces: the shared share predicate, identical to the toolbar
+        // enablement gate in ChromeOverlay (FR-08 / FR-09 / TASK-15).
+        guard ShareGateKt.canShare(text: text),
               presenting.view.window != nil,
               presenting.presentedViewController == nil else { return }
         presenting.view.layoutIfNeeded()
