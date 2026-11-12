@@ -210,20 +210,25 @@ final class ChromeBarCoordinatorTests: XCTestCase {
         }
     }
 
-    func testRecentNotesFormAnInlineSectionAboveAbout() throws {
+    func testAboutComesFirstAndTheRecentNotesHeaderIsInert() throws {
         let menu = NativeEditorMenu.make(menuVM: makeMenu())
-        XCTAssertEqual(menu.children.count, 2)
-        // The recents are an inline section: header label plus flat rows, no submenu chevron.
-        let recents = try XCTUnwrap(menu.children.first as? UIMenu)
-        XCTAssertEqual(recents.title, String(localized: "Recent notes"))
-        XCTAssertTrue(recents.options.contains(.displayInline))
-        XCTAssertTrue(recents.children.first is UIDeferredMenuElement)
-        // About stays a real (non-inline) submenu, last in the list.
-        let about = try XCTUnwrap(menu.children.last as? UIMenu)
+        XCTAssertEqual(menu.children.count, 3)
+
+        // About is pinned by being the first row: UIKit opens a menu at its first entry.
+        let about = try XCTUnwrap(menu.children.first as? UIMenu)
         XCTAssertEqual(about.title, String(localized: "About"))
         XCTAssertFalse(about.options.contains(.displayInline))
         XCTAssertNotNil(about.image)
         XCTAssertEqual(about.children.count, 3)
+
+        // The header keeps the old submenu row's glyph + title but must not be actionable.
+        let header = try XCTUnwrap(menu.children.dropFirst().first as? UIAction)
+        XCTAssertEqual(header.title, String(localized: "Recent notes"))
+        XCTAssertTrue(header.attributes.contains(.disabled))
+        XCTAssertNotNil(header.image)
+
+        // The recents are the menu's own rows, resolved on each open.
+        XCTAssertTrue(menu.children.last is UIDeferredMenuElement)
     }
 
     func testEmptyRecoveryRemainsADisabledMenuRow() throws {

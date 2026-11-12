@@ -12,7 +12,7 @@ final class MenuPresentationTests: XCTestCase {
         menu.tap()
         let about = app.buttons["About"]
         XCTAssertTrue(about.waitForExistence(timeout: 5), app.debugDescription)
-        assertRecentNotesHeader(in: app)
+        assertMenuReadingOrder(in: app, about: about)
         capture(app, name: "menu-closed-keyboard")
         app.terminate()
         app.launch()
@@ -24,21 +24,22 @@ final class MenuPresentationTests: XCTestCase {
         capture(app, name: "pill-keyboard")
         app.buttons["Menu"].tap()
         XCTAssertTrue(about.waitForExistence(timeout: 5), app.debugDescription)
-        assertRecentNotesHeader(in: app)
+        assertMenuReadingOrder(in: app, about: about)
         capture(app, name: "menu-keyboard")
         about.tap()
         XCTAssertTrue(app.buttons["Website"].waitForExistence(timeout: 5), app.debugDescription)
         capture(app, name: "about-submenu-keyboard")
     }
 
-    /// The recents sit under a "Recent notes" section header: a label above the rows, never a
-    /// tappable row that opens a submenu.
-    private func assertRecentNotesHeader(in app: XCUIApplication) {
+    /// About is the menu's first row (which is how it stays visible), then the inert
+    /// "Recent notes" header, then the rows.
+    private func assertMenuReadingOrder(in app: XCUIApplication, about: XCUIElement) {
         let header = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", "Recent notes"))
             .firstMatch
         XCTAssertTrue(header.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertFalse(app.buttons["Recent notes"].exists, app.debugDescription)
+        XCTAssertFalse(header.isEnabled, "The recent-notes header must be inert: \(app.debugDescription)")
+        XCTAssertLessThan(about.frame.minY, header.frame.minY, "About must sit above the notes")
     }
 
     private func capture(_ app: XCUIApplication, name: String) {

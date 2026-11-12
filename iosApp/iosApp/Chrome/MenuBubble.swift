@@ -2,29 +2,30 @@ import UIKit
 
 @MainActor
 enum NativeEditorMenu {
-    /// Flat top level with a section header: the recents render as the menu's own rows under a
-    /// "Recent notes" label — the same shape the Android sheet uses (header, rows, About) — with
-    /// the About submenu closing the list underneath them.
+    /// About first, recents underneath, all flat.
     ///
-    /// `.displayInline` is what turns the group into a section: UIKit draws its `title` as a
-    /// header and splices the children into the parent menu instead of behind a submenu, so a
-    /// tap on a note restores it directly. The recents stay a deferred element so the rows are
-    /// still resolved on every open (fresh `RecoveryListViewModel` per presentation, FR-12).
+    /// **About at the top is the pin.** A `UIMenu` is one system scroll view, so nothing can be
+    /// anchored to a screen edge; but UIKit opens a menu at its first row, so putting About first
+    /// keeps it on screen however long the recent-notes list grows. It stays a real submenu.
     ///
-    /// About deliberately omits `.displayInline`: it stays a real submenu, last in the list.
+    /// The "Recent notes" label keeps the look of the retired submenu row (clock glyph + title)
+    /// but is inert: `.disabled` renders it as a header rather than an action, so the rows under
+    /// it restore in one tap (FR-12 still holds — the deferred element resolves a fresh
+    /// `RecoveryListViewModel` on every open).
     static func make(menuVM: MenuViewModel) -> UIMenu {
-        let recents = UIMenu(
-            title: String(localized: "Recent notes"),
-            options: .displayInline,
-            children: [UIDeferredMenuElement.uncached { completion in
-                completion(recoveryActions(menuVM: menuVM))
-            }]
-        )
         let about = UIMenu(
             title: String(localized: "About"), image: UIImage(systemName: "info.circle"),
             children: aboutActions()
         )
-        return UIMenu(children: [recents, about])
+        let header = UIAction(
+            title: String(localized: "Recent notes"),
+            image: UIImage(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90"),
+            attributes: .disabled
+        ) { _ in }
+        let recents = UIDeferredMenuElement.uncached { completion in
+            completion(recoveryActions(menuVM: menuVM))
+        }
+        return UIMenu(children: [about, header, recents])
     }
 
     static func recoveryActions(menuVM: MenuViewModel) -> [UIMenuElement] {
