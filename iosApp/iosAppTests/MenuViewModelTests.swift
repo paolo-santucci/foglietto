@@ -210,17 +210,18 @@ final class ChromeBarCoordinatorTests: XCTestCase {
         }
     }
 
-    func testRecentNotesAreTopLevelRowsAndAboutIsTheLastSubmenu() throws {
+    func testRecentNotesFormAnInlineSectionAboveAbout() throws {
         let menu = NativeEditorMenu.make(menuVM: makeMenu())
         XCTAssertEqual(menu.children.count, 2)
-        // Recents are flattened into the top level; only About remains a submenu.
-        XCTAssertTrue(menu.children.first is UIDeferredMenuElement)
-        XCTAssertFalse(
-            menu.children.contains { ($0 as? UIMenu)?.title == String(localized: "Recent notes") },
-            "The recents must not sit behind a submenu"
-        )
+        // The recents are an inline section: header label plus flat rows, no submenu chevron.
+        let recents = try XCTUnwrap(menu.children.first as? UIMenu)
+        XCTAssertEqual(recents.title, String(localized: "Recent notes"))
+        XCTAssertTrue(recents.options.contains(.displayInline))
+        XCTAssertTrue(recents.children.first is UIDeferredMenuElement)
+        // About stays a real (non-inline) submenu, last in the list.
         let about = try XCTUnwrap(menu.children.last as? UIMenu)
         XCTAssertEqual(about.title, String(localized: "About"))
+        XCTAssertFalse(about.options.contains(.displayInline))
         XCTAssertNotNil(about.image)
         XCTAssertEqual(about.children.count, 3)
     }
@@ -238,7 +239,7 @@ final class MenuLocalizationTests: XCTestCase {
     private let locales = "en it af ar bg bn ca cs da de el es et eu fa fi fil fr gl he hi hr hu id is ja ko lt lv mk ms nb nl pl pt-BR pt-PT ro ru sk sl sq sr sv sw ta te th tr uk ur vi zh-Hans zh-Hant".split(separator: " ").map(String.init)
     private let keys = [
         "About", "Undo", "Copy", "Copy text", "Hide keyboard", "Indent", "Menu",
-        "No recent notes.", "Open menu", "Outdent", "Paste", "Paste text",
+        "No recent notes.", "Open menu", "Outdent", "Paste", "Paste text", "Recent notes",
         "Report an issue", "Restore note: %@, saved %@", "Restore this note", "Share", "Share text", "Website"
     ]
 

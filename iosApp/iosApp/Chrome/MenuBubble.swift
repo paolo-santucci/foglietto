@@ -2,16 +2,24 @@ import UIKit
 
 @MainActor
 enum NativeEditorMenu {
-    /// Flat top level: the recent notes are the menu's own rows — no "Recent notes"
-    /// submenu — and the About submenu closes the list underneath them.
+    /// Flat top level with a section header: the recents render as the menu's own rows under a
+    /// "Recent notes" label — the same shape the Android sheet uses (header, rows, About) — with
+    /// the About submenu closing the list underneath them.
     ///
-    /// The recents stay a deferred element so the rows are still resolved on every
-    /// open (fresh `RecoveryListViewModel` per presentation, FR-12); the deferred
-    /// element's children are inserted in place, which is what keeps them above About.
+    /// `.displayInline` is what turns the group into a section: UIKit draws its `title` as a
+    /// header and splices the children into the parent menu instead of behind a submenu, so a
+    /// tap on a note restores it directly. The recents stay a deferred element so the rows are
+    /// still resolved on every open (fresh `RecoveryListViewModel` per presentation, FR-12).
+    ///
+    /// About deliberately omits `.displayInline`: it stays a real submenu, last in the list.
     static func make(menuVM: MenuViewModel) -> UIMenu {
-        let recents = UIDeferredMenuElement.uncached { completion in
-            completion(recoveryActions(menuVM: menuVM))
-        }
+        let recents = UIMenu(
+            title: String(localized: "Recent notes"),
+            options: .displayInline,
+            children: [UIDeferredMenuElement.uncached { completion in
+                completion(recoveryActions(menuVM: menuVM))
+            }]
+        )
         let about = UIMenu(
             title: String(localized: "About"), image: UIImage(systemName: "info.circle"),
             children: aboutActions()

@@ -12,8 +12,7 @@ final class MenuPresentationTests: XCTestCase {
         menu.tap()
         let about = app.buttons["About"]
         XCTAssertTrue(about.waitForExistence(timeout: 5), app.debugDescription)
-        // Recents are top-level rows now: no "Recent notes" submenu entry.
-        XCTAssertFalse(app.buttons["Recent notes"].exists, app.debugDescription)
+        assertRecentNotesHeader(in: app)
         capture(app, name: "menu-closed-keyboard")
         app.terminate()
         app.launch()
@@ -25,11 +24,21 @@ final class MenuPresentationTests: XCTestCase {
         capture(app, name: "pill-keyboard")
         app.buttons["Menu"].tap()
         XCTAssertTrue(about.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertFalse(app.buttons["Recent notes"].exists, app.debugDescription)
+        assertRecentNotesHeader(in: app)
         capture(app, name: "menu-keyboard")
         about.tap()
         XCTAssertTrue(app.buttons["Website"].waitForExistence(timeout: 5), app.debugDescription)
         capture(app, name: "about-submenu-keyboard")
+    }
+
+    /// The recents sit under a "Recent notes" section header: a label above the rows, never a
+    /// tappable row that opens a submenu.
+    private func assertRecentNotesHeader(in app: XCUIApplication) {
+        let header = app.descendants(matching: .any)
+            .matching(NSPredicate(format: "label == %@", "Recent notes"))
+            .firstMatch
+        XCTAssertTrue(header.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.buttons["Recent notes"].exists, app.debugDescription)
     }
 
     private func capture(_ app: XCUIApplication, name: String) {
