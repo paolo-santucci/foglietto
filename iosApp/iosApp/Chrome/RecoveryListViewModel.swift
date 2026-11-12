@@ -1,8 +1,8 @@
 // Chrome/RecoveryListViewModel.swift
 // Foglietto — KMP Milestone 4: Liquid Glass Chrome
 //
-// @Observable view model backing the "Recent notes" inline recovery submenu.
-// Re-fetches RecoveryRepository.list() on every expand (not launch-cached).
+// @Observable view model backing the recent-notes rows of the menu (top level).
+// Re-fetches RecoveryRepository.list() on every menu open (not launch-cached).
 // Maps each RecoveryNote to a RecoveryRow for display.
 // Restore-on-tap only — no delete, delete-all, or confirm dialog (FR-14).
 //
@@ -45,16 +45,16 @@ struct RecoveryRow: Identifiable {
 
 // MARK: - RecoveryListViewModel
 
-/// `@Observable` view model backing the "Recent notes" inline recovery submenu.
+/// `@Observable` view model backing the recent-notes rows of the menu.
 ///
 /// **Ctor-injected (DIP):**
 ///   - `recovery: RecoveryRepository` — for `list()` and `read(path:)` calls.
 ///   - `viewModel: NoteViewModel` — for `populate(_:)` on restore.
 ///
-/// **Re-fetch on every expand (FR-12):**
+/// **Re-fetch on every open (FR-12):**
 /// `refresh()` calls `recovery.list()` on every invocation. There is no launch-time
-/// cache — the submenu reflects on-disk state at the moment of expansion. This satisfies
-/// EC-05 (mutated file) and EC-06 (absent dir on first expand, which causes `list()`
+/// cache — the rows reflect on-disk state at the moment the menu is opened. This satisfies
+/// EC-05 (mutated file) and EC-06 (absent dir on first open, which causes `list()`
 /// to return `[]` without crashing).
 ///
 /// **Restore-on-tap, nil-tolerant (FR-13 / EC-04):**
@@ -78,7 +78,7 @@ final class RecoveryListViewModel {
 
     // MARK: - Observable state
 
-    /// The list of rows currently shown in the submenu.
+    /// The list of rows currently shown in the menu.
     /// Empty until `refresh()` is called; also empty when there are no recovery notes
     /// on disk (EC-02 empty-recovery state).
     private(set) var rows: [RecoveryRow] = []
@@ -95,11 +95,11 @@ final class RecoveryListViewModel {
         self.noteViewModel = viewModel
     }
 
-    // MARK: - Refresh (re-fetch on every expand — FR-12)
+    // MARK: - Refresh (re-fetch on every open — FR-12)
 
     /// Re-fetch the recovery note list from disk.
     ///
-    /// Called by `MenuBubble` on every "Recent notes" submenu expansion.
+    /// Called by `MenuBubble` on every menu open.
     /// Not cached from launch — each call reflects the current on-disk state.
     ///
     /// The `list()` result is already ordered newest-first by filename
@@ -130,7 +130,7 @@ final class RecoveryListViewModel {
     ///
     /// **Nil-tolerance (EC-04 / FR-13):** If `read` returns `nil` (file vanished since
     /// the last `list()` call — e.g. deleted via Files app), no restore occurs and
-    /// no crash is raised. The submenu row simply does nothing.
+    /// no crash is raised. The row simply does nothing.
     ///
     /// **On-disk text (EC-05):** If the file was mutated externally between `list()`
     /// and this tap, `read` returns the current on-disk text. There is no stale

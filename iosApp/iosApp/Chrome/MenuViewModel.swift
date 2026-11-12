@@ -5,7 +5,7 @@
 // indirection). With the theme picker and font-size rocker removed (user
 // direction — the app always follows the system theme and the system default
 // font), it owns exactly one responsibility: fresh RecoveryListViewModel
-// creation on each submenu expand.
+// creation on each menu open.
 //
 // Spec refs: FR-12; NFR-05, NFR-06; EC-10.
 // Contract: §5.1.d.
@@ -24,7 +24,7 @@ import shared
 ///
 /// **Fresh RecoveryListViewModel (FR-12):**
 /// `makeRecoveryListViewModel()` returns a NEW `RecoveryListViewModel` on every call,
-/// so each submenu expand re-fetches `recovery.list()` fresh (never launch-cached).
+/// so each menu open re-fetches `recovery.list()` fresh (never launch-cached).
 final class MenuViewModel {
 
     // MARK: - Injected dependencies (DIP)
@@ -48,10 +48,11 @@ final class MenuViewModel {
 
     /// Returns a **fresh** `RecoveryListViewModel` on every call.
     ///
-    /// The RecoverySection calls this when the "Recent notes" submenu is expanded.
-    /// A fresh instance is returned (never cached from the previous expand) so that
+    /// The menu builder calls this each time the menu is opened (the recents are
+    /// top-level rows resolved from a deferred element, not a submenu).
+    /// A fresh instance is returned (never cached from the previous open) so that
     /// `refresh()` re-fetches `recovery.list()` from the current on-disk state.
-    /// Caching would violate FR-12 ("re-fetches on every expand").
+    /// Caching would violate FR-12 ("re-fetches on every open").
     ///
     /// - Returns: A new `RecoveryListViewModel` ready to have `refresh()` called on it.
     func makeRecoveryListViewModel() -> RecoveryListViewModel {

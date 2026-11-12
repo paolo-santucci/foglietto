@@ -10,11 +10,11 @@ final class MenuPresentationTests: XCTestCase {
         XCTAssertTrue(menu.waitForExistence(timeout: 10))
         capture(app, name: "pill-closed")
         menu.tap()
-        let recent = app.buttons["Recent notes"]
-        XCTAssertTrue(recent.waitForExistence(timeout: 5), app.debugDescription)
+        let about = app.buttons["About"]
+        XCTAssertTrue(about.waitForExistence(timeout: 5), app.debugDescription)
+        // Recents are top-level rows now: no "Recent notes" submenu entry.
+        XCTAssertFalse(app.buttons["Recent notes"].exists, app.debugDescription)
         capture(app, name: "menu-closed-keyboard")
-        recent.tap()
-        capture(app, name: "recent-submenu-closed-keyboard")
         app.terminate()
         app.launch()
         let editor = app.textViews.firstMatch
@@ -24,9 +24,10 @@ final class MenuPresentationTests: XCTestCase {
         XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
         capture(app, name: "pill-keyboard")
         app.buttons["Menu"].tap()
-        XCTAssertTrue(recent.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertTrue(about.waitForExistence(timeout: 5), app.debugDescription)
+        XCTAssertFalse(app.buttons["Recent notes"].exists, app.debugDescription)
         capture(app, name: "menu-keyboard")
-        app.buttons["About"].tap()
+        about.tap()
         XCTAssertTrue(app.buttons["Website"].waitForExistence(timeout: 5), app.debugDescription)
         capture(app, name: "about-submenu-keyboard")
     }

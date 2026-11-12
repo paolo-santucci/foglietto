@@ -210,15 +210,16 @@ final class ChromeBarCoordinatorTests: XCTestCase {
         }
     }
 
-    func testSubmenusRetainTitlesAndIconsInNativeHierarchy() throws {
+    func testRecentNotesAreTopLevelRowsAndAboutIsTheLastSubmenu() throws {
         let menu = NativeEditorMenu.make(menuVM: makeMenu())
         XCTAssertEqual(menu.children.count, 2)
-        let recent = try XCTUnwrap(menu.children.first as? UIMenu)
+        // Recents are flattened into the top level; only About remains a submenu.
+        XCTAssertTrue(menu.children.first is UIDeferredMenuElement)
+        XCTAssertFalse(
+            menu.children.contains { ($0 as? UIMenu)?.title == String(localized: "Recent notes") },
+            "The recents must not sit behind a submenu"
+        )
         let about = try XCTUnwrap(menu.children.last as? UIMenu)
-        XCTAssertEqual(recent.title, String(localized: "Recent notes"))
-        XCTAssertNotNil(recent.image)
-        XCTAssertFalse(recent.options.contains(.displayInline))
-        XCTAssertTrue(recent.children.first is UIDeferredMenuElement)
         XCTAssertEqual(about.title, String(localized: "About"))
         XCTAssertNotNil(about.image)
         XCTAssertEqual(about.children.count, 3)
@@ -237,7 +238,7 @@ final class MenuLocalizationTests: XCTestCase {
     private let locales = "en it af ar bg bn ca cs da de el es et eu fa fi fil fr gl he hi hr hu id is ja ko lt lv mk ms nb nl pl pt-BR pt-PT ro ru sk sl sq sr sv sw ta te th tr uk ur vi zh-Hans zh-Hant".split(separator: " ").map(String.init)
     private let keys = [
         "About", "Undo", "Copy", "Copy text", "Hide keyboard", "Indent", "Menu",
-        "No recent notes.", "Open menu", "Outdent", "Paste", "Paste text", "Recent notes",
+        "No recent notes.", "Open menu", "Outdent", "Paste", "Paste text",
         "Report an issue", "Restore note: %@, saved %@", "Restore this note", "Share", "Share text", "Website"
     ]
 

@@ -2,19 +2,21 @@ import UIKit
 
 @MainActor
 enum NativeEditorMenu {
+    /// Flat top level: the recent notes are the menu's own rows — no "Recent notes"
+    /// submenu — and the About submenu closes the list underneath them.
+    ///
+    /// The recents stay a deferred element so the rows are still resolved on every
+    /// open (fresh `RecoveryListViewModel` per presentation, FR-12); the deferred
+    /// element's children are inserted in place, which is what keeps them above About.
     static func make(menuVM: MenuViewModel) -> UIMenu {
-        let recent = UIMenu(
-            title: String(localized: "Recent notes"),
-            image: UIImage(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90"),
-            children: [UIDeferredMenuElement.uncached { completion in
-                completion(recoveryActions(menuVM: menuVM))
-            }]
-        )
+        let recents = UIDeferredMenuElement.uncached { completion in
+            completion(recoveryActions(menuVM: menuVM))
+        }
         let about = UIMenu(
             title: String(localized: "About"), image: UIImage(systemName: "info.circle"),
             children: aboutActions()
         )
-        return UIMenu(children: [recent, about])
+        return UIMenu(children: [recents, about])
     }
 
     static func recoveryActions(menuVM: MenuViewModel) -> [UIMenuElement] {
