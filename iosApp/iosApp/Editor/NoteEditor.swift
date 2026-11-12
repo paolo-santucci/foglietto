@@ -68,19 +68,87 @@ struct NoteEditor: UIViewRepresentable {
     /// constant (EC-24).
     final class NoteTextView: UITextView {
         private var needsRestoredNoteScrollReset = false
+        /// The adjusted inset the restore anchored to. While the editor is idle and still
+        /// parked on that anchor, a later geometry change re-anchors instead of leaving the
+        /// first line hidden above the top edge.
+        private var restoredAnchorInset: UIEdgeInsets?
+
+        /// Top of the resting viewport: the content offset that puts the first line under the
+        /// adjusted (safe-area + navigation) inset rather than at the raw view top.
+        private var restingTopAnchor: CGPoint {
+            CGPoint(x: -adjustedContentInset.left, y: -adjustedContentInset.top)
+        }
 
         func revealRestoredNote() {
             selectedRange = NSRange(location: 0, length: 0)
             needsRestoredNoteScrollReset = true
+            restoredAnchorInset = nil
             setNeedsLayout()
         }
 
         override func layoutSubviews() {
             super.layoutSubviews()
-            guard needsRestoredNoteScrollReset, window != nil,
-                  bounds.width > 0, bounds.height > 0 else { return }
-            needsRestoredNoteScrollReset = false
-            setContentOffset(CGPoint(x: -adjustedContentInset.left, y: -adjustedContentInset.top), animated: false)
+            guard window != nil, bounds.width > 0, bounds.height > 0 else { return }
+
+            if needsRestoredNoteScrollReset {
+                needsRestoredNoteScrollReset = false
+                restoredAnchorInset = adjustedContentInset
+                setContentOffset(restingTopAnchor, animated: false)
+                return
+            }
+
+            settleRestoredAnchor()
+        }
+
+        /// Keeps a freshly restored, untouched viewport on the top anchor.
+        ///
+        /// The restore lands while the menu is dismissing, before the safe area / navigation bar
+        /// has settled, so the one-shot reset can anchor to a zero inset — and UIKit's own
+        /// text-assignment relayout can afterwards park the offset at the raw view top. Either
+        /// way the first lines end up clipped above the screen until the keyboard rebuilds the
+        /// viewport, which is exactly the bug this guards.
+        ///
+        /// While the anchor is tracked, an inset change re-anchors and a drifting offset is
+        /// pulled back. Tracking ends at the first user interaction — a drag
+        /// (`endRestoredAnchorTracking`) or focus (`becomeFirstResponder`) — so it never fights
+        /// real scrolling or editing.
+        func settleRestoredAnchor() {
+            guard let anchored = restoredAnchorInset,
+                  !isFirstResponder, !isTracking, !isDecelerating,
+                  window != nil, bounds.width > 0, bounds.height > 0 else { return }
+
+            if adjustedContentInset != anchored {
+                let previousTop = CGPoint(x: -anchored.left, y: -anchored.top)
+                guard abs(contentOffset.y - previousTop.y) < 0.5 else {
+                    restoredAnchorInset = nil
+                    return
+                }
+                restoredAnchorInset = adjustedContentInset
+                setContentOffset(restingTopAnchor, animated: false)
+                return
+            }
+
+            guard abs(contentOffset.y - restingTopAnchor.y) > 0.5 else { return }
+            setContentOffset(restingTopAnchor, animated: false)
+        }
+
+        /// Stops tracking the restore anchor — the viewport is the user's from here on.
+        func endRestoredAnchorTracking() {
+            restoredAnchorInset = nil
+        }
+
+        /// Focus ends the restore tracking: UIKit owns the viewport once editing starts.
+        override func becomeFirstResponder() -> Bool {
+            let accepted = super.becomeFirstResponder()
+            if accepted { endRestoredAnchorTracking() }
+            return accepted
+        }
+
+        /// Any inset change re-runs the layout, so a parked viewport follows the anchor.
+        override var contentInset: UIEdgeInsets {
+            didSet {
+                if restoredAnchorInset != nil { setNeedsLayout() }
+            }
         }
 
         override func didMoveToWindow() {
@@ -92,6 +160,7 @@ struct NoteEditor: UIViewRepresentable {
         override func safeAreaInsetsDidChange() {
             super.safeAreaInsetsDidChange()
             reconcileTopInset()
+            if needsRestoredNoteScrollReset || restoredAnchorInset != nil { setNeedsLayout() }
         }
 
         /// Applies content padding without adding the safe area a second time.
@@ -417,7 +486,14 @@ struct NoteEditor: UIViewRepresentable {
         /// the coordinator's own mutation sites never cause — the late TextKit relayout
         /// after a restore and UIKit's stale caret-scrolling on programmatic edits.
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
-            (scrollView as? NoteTextView)?.clampIdleOffset()
+            guard let editor = scrollView as? NoteTextView else { return }
+            editor.clampIdleOffset()
+            editor.settleRestoredAnchor()
+        }
+
+        /// A user drag owns the viewport from then on — the restore anchor stops tracking.
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            (scrollView as? NoteTextView)?.endRestoredAnchorTracking()
         }
     }
 }

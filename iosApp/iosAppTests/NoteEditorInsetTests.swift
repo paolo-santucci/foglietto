@@ -63,6 +63,89 @@ final class NoteEditorInsetTests: XCTestCase {
         XCTAssertEqual(view.contentOffset.y, -view.adjustedContentInset.top, accuracy: 0.5)
     }
 
+    /// The menu-dismissal case: the restore reset runs while the adjusted inset is still zero,
+    /// so the one-shot anchor is the raw view top. When the safe area / navigation bar settles,
+    /// the parked viewport must follow the new anchor — otherwise the first line stays clipped
+    /// above the screen until the keyboard makes UIKit re-scroll the caret.
+    func testRestoreReanchorsWhenTheInsetSettlesAfterTheReset() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = NoteEditor.NoteTextView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        window.addSubview(view)
+        view.contentInsetAdjustmentBehavior = .never
+        view.contentInset.top = 0
+        view.text = String(repeating: "A line of the previous note\n", count: 150)
+        view.setContentOffset(CGPoint(x: 0, y: 400), animated: false)
+        view.layoutIfNeeded()
+
+        let model = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = NoteEditor.Coordinator(viewModel: model)
+        model.populate("Restored note")
+        coordinator.reconcileText(in: view)
+        view.layoutIfNeeded()
+        XCTAssertEqual(view.contentOffset.y, 0, accuracy: 0.5)
+
+        view.contentInset.top = 103
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.contentOffset.y, -103, accuracy: 0.5)
+        XCTAssertFalse(view.isFirstResponder)
+    }
+
+    /// UIKit's text-assignment relayout can park the offset at the raw view top *after* the
+    /// reset already ran; the tracked anchor pulls it back instead of leaving the first line
+    /// above the screen.
+    func testOffsetDriftAfterRestoreIsPulledBackToTheTopAnchor() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = NoteEditor.NoteTextView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        window.addSubview(view)
+        view.contentInsetAdjustmentBehavior = .never
+        view.contentInset.top = 103
+        view.text = String(repeating: "A line of the restored note\n", count: 150)
+
+        let model = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = NoteEditor.Coordinator(viewModel: model)
+        model.populate(view.text)
+        coordinator.reconcileText(in: view)
+        view.layoutIfNeeded()
+        XCTAssertEqual(view.contentOffset.y, -103, accuracy: 0.5)
+
+        view.setContentOffset(.zero, animated: false)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.contentOffset.y, -103, accuracy: 0.5)
+    }
+
+    /// ...but the anchor is only authoritative while the viewport is untouched: a user drag
+    /// ends the tracking, so later geometry changes leave the user's position alone.
+    func testUserDragAfterRestoreEndsTheAnchorTracking() {
+        let window = TestSafeAreaWindow(safeAreaTop: 59)
+        let view = NoteEditor.NoteTextView(frame: CGRect(x: 0, y: 0, width: 390, height: 600))
+        window.addSubview(view)
+        view.contentInsetAdjustmentBehavior = .never
+        view.contentInset.top = 103
+        view.text = String(repeating: "A line of the restored note\n", count: 150)
+
+        let model = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = NoteEditor.Coordinator(viewModel: model)
+        model.populate(view.text)
+        coordinator.reconcileText(in: view)
+        view.layoutIfNeeded()
+        XCTAssertEqual(view.contentOffset.y, -103, accuracy: 0.5)
+
+        coordinator.scrollViewWillBeginDragging(view)
+        view.setContentOffset(CGPoint(x: 0, y: 120), animated: false)
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+
+        view.contentInset.top = 130
+        view.setNeedsLayout()
+        view.layoutIfNeeded()
+
+        XCTAssertEqual(view.contentOffset.y, 120, accuracy: 0.5)
+    }
+
     func testEditingAfterRestoreDoesNotResetSelectionOrScrollAgain() {
         let window = TestSafeAreaWindow(safeAreaTop: 59)
         let view = makeScrolledEditor(in: window)
@@ -71,6 +154,8 @@ final class NoteEditorInsetTests: XCTestCase {
         model.populate(view.text)
         coordinator.reconcileText(in: view)
         view.layoutIfNeeded()
+        // The user scrolls away from the restored position (a drag, as UIKit would report).
+        coordinator.scrollViewWillBeginDragging(view)
         view.selectedRange = NSRange(location: 100, length: 0)
         view.setContentOffset(CGPoint(x: 0, y: 200), animated: false)
         view.layoutIfNeeded()
