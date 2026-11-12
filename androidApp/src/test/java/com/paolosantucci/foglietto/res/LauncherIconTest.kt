@@ -16,15 +16,22 @@ import org.w3c.dom.Element
  *    (the round variant is what launchers request on masked devices);
  *  - each `mipmap-anydpi-v26/` icon is a well-formed `<adaptive-icon>` carrying a
  *    `<foreground>`, a `<background>` and a `<monochrome>` layer (themed icons, API 33+);
+ *  - every layer resolves to its drawable either inline (`android:drawable` on the layer) or
+ *    through a single wrapper child — `<inset android:drawable="…" />` — which is how the
+ *    artwork is given breathing room inside the mask;
  *  - the foreground layer is a real `<vector>` (an inline bitmap would silently bloat and
- *    blur — the derivation is a faithful vector mark, per OQ-05) painted by reference to the
- *    `@color/brand_brown` token, never a restated hex (S11);
+ *    blur — the derivation is a faithful vector mark, per OQ-05) with a square viewport, every
+ *    path painted;
  *  - the background layer resolves to a declared `<color>` which aliases `@color/brand_yellow`,
  *    and that token is the canon brand light token (`#F6D32D`, ui-design-bible §Colour & branding
  *    tokens).
  *
+ * The foreground is an imported illustration: it carries its own palette (hex fills plus
+ * `<aapt:attr>` gradient stops), so the test asserts that every path is *painted*, not that it
+ * references a single brand token — that invariant retired with the hand-drawn placeholder mark.
+ *
  * The XML is parsed namespace-unaware (like [com.paolosantucci.foglietto.ManifestContractTest]),
- * so attributes stay readable as `android:name`.
+ * so attributes stay readable as `android:name` (and `aapt:attr` keeps its literal tag name).
  */
 class LauncherIconTest {
 
@@ -63,26 +70,27 @@ class LauncherIconTest {
                 icon.documentElement.tagName,
             )
 
-            val foreground = icon.documentElement.children("foreground").single()
-            val background = icon.documentElement.children("background").single()
-
             assertEquals(
                 "$name.xml foreground must be the vector mark.",
                 "@drawable/ic_launcher_foreground",
-                foreground.getAttribute("android:drawable"),
+                drawableReference(icon.documentElement.children("foreground").single(), name),
             )
             assertEquals(
                 "$name.xml background must be the brand colour resource.",
                 "@color/ic_launcher_background",
-                background.getAttribute("android:drawable"),
+                drawableReference(icon.documentElement.children("background").single(), name),
             )
+            // The layer wrappers themselves must exist, with no stray duplicates.
+            assertEquals(1, icon.documentElement.children("background").size)
+            assertEquals(1, icon.documentElement.children("foreground").size)
+            assertEquals(1, icon.documentElement.children("monochrome").size)
         }
     }
 
     @Test
     fun `both adaptive icons declare the same monochrome layer`() {
         // S11: the themed-icon layer. The launcher consumes it as an alpha mask and tints it, so
-        // reusing the mark's vector (rather than duplicating the path) is the whole contract.
+        // pointing it at the mark's vector (rather than duplicating the paths) is the contract.
         for (name in listOf("ic_launcher", "ic_launcher_round")) {
             val icon = parse(mainDir.resolve("res/mipmap-anydpi-v26/$name.xml"))
             val monochrome = icon.documentElement.children("monochrome").single()
@@ -90,37 +98,45 @@ class LauncherIconTest {
             assertEquals(
                 "$name.xml must declare a <monochrome> layer for API 33+ themed icons.",
                 "@drawable/ic_launcher_foreground",
-                monochrome.getAttribute("android:drawable"),
+                drawableReference(monochrome, name),
             )
         }
     }
 
     @Test
-    fun `the foreground is a vector mark in the brand ink`() {
+    fun `the foreground is a square vector whose every path is painted`() {
         val foreground = parse(mainDir.resolve("res/drawable/ic_launcher_foreground.xml"))
+        val root = foreground.documentElement
 
-        assertEquals("vector", foreground.documentElement.tagName)
-        assertEquals("108dp", foreground.documentElement.getAttribute("android:width"))
-        assertEquals("108dp", foreground.documentElement.getAttribute("android:height"))
+        assertEquals("vector", root.tagName)
+
+        val width = root.getAttribute("android:width")
+        val height = root.getAttribute("android:height")
         assertTrue(
-            "The vector must declare a 108dp viewport (adaptive-icon canvas).",
-            foreground.documentElement.getAttribute("android:viewportWidth") == "108" &&
-                foreground.documentElement.getAttribute("android:viewportHeight") == "108",
+            "The foreground vector must declare a square intrinsic size (was $width x $height).",
+            width.isNotEmpty() && width == height,
+        )
+
+        val viewportWidth = root.getAttribute("android:viewportWidth").toFloatOrNull()
+        val viewportHeight = root.getAttribute("android:viewportHeight").toFloatOrNull()
+        assertTrue(
+            "The foreground vector must declare a square viewport (was $viewportWidth x $viewportHeight).",
+            viewportWidth != null && viewportWidth == viewportHeight && viewportWidth > 0f,
         )
 
         val paths = foreground.elements("path")
         assertTrue("The foreground vector must draw at least one path.", paths.isNotEmpty())
         for (path in paths) {
-            val paint = if (path.hasAttribute("android:fillColor")) {
-                path.getAttribute("android:fillColor")
-            } else {
-                path.getAttribute("android:strokeColor")
-            }
-            assertEquals(
-                "Every foreground path must be painted in the brand dark token, by reference " +
-                    "(S11: @color/brand_brown, never a restated hex).",
-                "@color/brand_brown",
-                paint.lowercase(),
+            val fill = path.getAttribute("android:fillColor")
+            val stroke = path.getAttribute("android:strokeColor")
+            val gradient = path.children("aapt:attr")
+                .firstOrNull { it.getAttribute("name") == "android:fillColor" }
+            val painted = listOf(fill, stroke).any { PAINT.matches(it) } || gradient != null
+            assertTrue(
+                "Every foreground path must be painted: a #RRGGBB[AA] fill, a @color/<name> " +
+                    "reference, or an <aapt:attr name=\"android:fillColor\"> gradient. Offending " +
+                    "path starts with ${path.getAttribute("android:pathData").take(24)}",
+                painted,
             )
         }
     }
@@ -160,6 +176,25 @@ class LauncherIconTest {
         )
     }
 
+    /**
+     * Resolves the drawable an `<adaptive-icon>` layer points at. The reference is either inline
+     * (`<foreground android:drawable="…" />`) or carried by a single wrapper child
+     * (`<foreground><inset android:drawable="…" /></foreground>`), which is how the artwork is
+     * inset inside the launcher mask.
+     */
+    private fun drawableReference(layer: Element, iconName: String): String {
+        val inline = layer.getAttribute("android:drawable")
+        if (inline.isNotEmpty()) return inline
+
+        val wrapper = layer.allChildren().singleOrNull()
+        assertTrue(
+            "$iconName.xml <${layer.tagName}> carries no android:drawable, directly or in a " +
+                "single wrapper child.",
+            wrapper != null,
+        )
+        return wrapper!!.getAttribute("android:drawable")
+    }
+
     private fun parse(file: File): Document {
         assertTrue("Missing resource: ${file.absolutePath}", file.isFile)
         return DocumentBuilderFactory.newInstance()
@@ -179,5 +214,15 @@ class LauncherIconTest {
             .map { nodes.item(it) }
             .filterIsInstance<Element>()
             .filter { it.tagName == tagName }
+    }
+
+    private fun Element.allChildren(): List<Element> {
+        val nodes = childNodes
+        return (0 until nodes.length).map { nodes.item(it) }.filterIsInstance<Element>()
+    }
+
+    private companion object {
+        /** A restated hex fill (`#RRGGBB` / `#AARRGGBB`) or a palette reference (`@color/name`). */
+        val PAINT = Regex("@color/[a-z0-9_]+|#[0-9A-Fa-f]{6}(?:[0-9A-Fa-f]{2})?")
     }
 }
