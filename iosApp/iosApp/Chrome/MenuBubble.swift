@@ -9,9 +9,13 @@ enum NativeEditorMenu {
     /// keeps it on screen however long the recent-notes list grows. It stays a real submenu.
     ///
     /// The "Recent notes" label keeps the look of the retired submenu row (clock glyph + title)
-    /// but is inert: `.disabled` renders it as a header rather than an action, so the rows under
-    /// it restore in one tap (FR-12 still holds — the deferred element resolves a fresh
-    /// `RecoveryListViewModel` on every open).
+    /// but is inert: `.disabled` renders it as a header rather than an action. The notes live in
+    /// their own `.displayInline` group, which is what makes UIKit draw the hairline between the
+    /// header and the rows — the submenu's own header separator.
+    ///
+    /// The title cannot be bold: menu rows expose no font control (only the private
+    /// `attributedTitle` KVC or `headerViewProvider`, both off-limits). Bold headers exist only
+    /// on a submenu screen, which is the nesting the flat list deliberately gave up.
     static func make(menuVM: MenuViewModel) -> UIMenu {
         let about = UIMenu(
             title: String(localized: "About"), image: UIImage(systemName: "info.circle"),
@@ -22,9 +26,12 @@ enum NativeEditorMenu {
             image: UIImage(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90"),
             attributes: .disabled
         ) { _ in }
-        let recents = UIDeferredMenuElement.uncached { completion in
-            completion(recoveryActions(menuVM: menuVM))
-        }
+        let recents = UIMenu(
+            options: .displayInline,
+            children: [UIDeferredMenuElement.uncached { completion in
+                completion(recoveryActions(menuVM: menuVM))
+            }]
+        )
         return UIMenu(children: [about, header, recents])
     }
 

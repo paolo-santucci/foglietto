@@ -227,8 +227,11 @@ final class ChromeBarCoordinatorTests: XCTestCase {
         XCTAssertTrue(header.attributes.contains(.disabled))
         XCTAssertNotNil(header.image)
 
-        // The recents are the menu's own rows, resolved on each open.
-        XCTAssertTrue(menu.children.last is UIDeferredMenuElement)
+        // The recents are the menu's own rows, in their own inline group — that group boundary
+        // is what makes UIKit draw the hairline under the header.
+        let recents = try XCTUnwrap(menu.children.last as? UIMenu)
+        XCTAssertTrue(recents.options.contains(.displayInline))
+        XCTAssertTrue(recents.children.first is UIDeferredMenuElement)
     }
 
     func testEmptyRecoveryRemainsADisabledMenuRow() throws {

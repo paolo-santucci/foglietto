@@ -68,9 +68,8 @@ struct NoteEditor: UIViewRepresentable {
     /// constant (EC-24).
     final class NoteTextView: UITextView {
         private var needsRestoredNoteScrollReset = false
-        /// The adjusted inset the restore anchored to. While the editor is idle and still
-        /// parked on that anchor, a later geometry change re-anchors instead of leaving the
-        /// first line hidden above the top edge.
+        /// Tracks the inset the restore anchored to; non-nil means the viewport is still the
+        /// restore's to correct (cleared on drag, typing, or a focus that lands already-correct).
         private var restoredAnchorInset: UIEdgeInsets?
 
         /// Top of the resting viewport: the content offset that puts the first line under the
@@ -84,6 +83,12 @@ struct NoteEditor: UIViewRepresentable {
             needsRestoredNoteScrollReset = true
             restoredAnchorInset = nil
             setNeedsLayout()
+            // One more layout on the next runloop turn: the menu dismissal can re-park the
+            // offset after this transaction has already laid out (reproduces on device).
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.restoredAnchorInset != nil else { return }
+                self.setNeedsLayout()
+            }
         }
 
         override func layoutSubviews() {
@@ -102,34 +107,24 @@ struct NoteEditor: UIViewRepresentable {
 
         /// Keeps a freshly restored, untouched viewport on the top anchor.
         ///
-        /// The restore lands while the menu is dismissing, before the safe area / navigation bar
-        /// has settled, so the one-shot reset can anchor to a zero inset — and UIKit's own
-        /// text-assignment relayout can afterwards park the offset at the raw view top. Either
-        /// way the first lines end up clipped above the screen until the keyboard rebuilds the
-        /// viewport, which is exactly the bug this guards.
-        ///
-        /// While the anchor is tracked, an inset change re-anchors and a drifting offset is
-        /// pulled back. Tracking ends at the first user interaction — a drag
-        /// (`endRestoredAnchorTracking`) or focus (`becomeFirstResponder`) — so it never fights
-        /// real scrolling or editing.
+        /// The restore lands while the menu is dismissing, so the viewport can be parked at the
+        /// raw view top (`contentOffset.y == 0`) instead of `-adjustedContentInset.top` — the
+        /// first lines then sit clipped above the screen until the keyboard rebuilds the
+        /// viewport by scrolling the caret. Every layout and every offset write therefore
+        /// re-asserts the anchor while the restore is still untouched; a drag ends the tracking,
+        /// and focus hands the viewport over once it is already correct.
         func settleRestoredAnchor() {
-            guard let anchored = restoredAnchorInset,
-                  !isFirstResponder, !isTracking, !isDecelerating,
+            guard restoredAnchorInset != nil, !isTracking, !isDecelerating,
                   window != nil, bounds.width > 0, bounds.height > 0 else { return }
-
-            if adjustedContentInset != anchored {
-                let previousTop = CGPoint(x: -anchored.left, y: -anchored.top)
-                guard abs(contentOffset.y - previousTop.y) < 0.5 else {
-                    restoredAnchorInset = nil
-                    return
-                }
-                restoredAnchorInset = adjustedContentInset
-                setContentOffset(restingTopAnchor, animated: false)
-                return
+            let anchor = restingTopAnchor
+            // While editing, only the known-broken state is corrected: an offset parked at the
+            // raw view top when the anchor sits below it. Any other focused position is UIKit's
+            // caret scrolling and must not be fought.
+            let parkedAtRawTop = abs(contentOffset.y) <= 0.5
+            if abs(contentOffset.y - anchor.y) > 0.5, !isFirstResponder || parkedAtRawTop {
+                setContentOffset(anchor, animated: false)
             }
-
-            guard abs(contentOffset.y - restingTopAnchor.y) > 0.5 else { return }
-            setContentOffset(restingTopAnchor, animated: false)
+            restoredAnchorInset = adjustedContentInset
         }
 
         /// Stops tracking the restore anchor — the viewport is the user's from here on.
@@ -137,10 +132,13 @@ struct NoteEditor: UIViewRepresentable {
             restoredAnchorInset = nil
         }
 
-        /// Focus ends the restore tracking: UIKit owns the viewport once editing starts.
+        /// Focus hands the viewport over only once it is already parked correctly; while the
+        /// geometry is still wrong the anchor keeps tracking, so the next layout can heal it.
         override func becomeFirstResponder() -> Bool {
             let accepted = super.becomeFirstResponder()
-            if accepted { endRestoredAnchorTracking() }
+            if accepted, abs(contentOffset.y - restingTopAnchor.y) <= 0.5 {
+                endRestoredAnchorTracking()
+            }
             return accepted
         }
 
@@ -477,6 +475,8 @@ struct NoteEditor: UIViewRepresentable {
         func textViewDidChange(_ textView: UITextView) {
             viewModel.updateText(textView.text)
             mirrorUndoState()
+            // Typing ends the restore state: the viewport is the editor's from here on.
+            (textView as? NoteTextView)?.endRestoredAnchorTracking()
         }
 
         // MARK: UIScrollViewDelegate — idle viewport settle
