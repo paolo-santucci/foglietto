@@ -49,6 +49,15 @@ final class MenuPresentationTests: XCTestCase {
         app.activate()
         XCTAssertTrue(editor.waitForExistence(timeout: 10))
 
+        // The reported case is the keyboard-closed one: with the keyboard up UIKit re-scrolls
+        // the caret and masks the bug. Close it before opening the menu.
+        let hideKeyboard = app.buttons["Hide keyboard"]
+        if hideKeyboard.exists { hideKeyboard.tap() }
+        XCTAssertTrue(
+            app.keyboards.firstMatch.waitForNonExistence(timeout: 5),
+            "The restore must be captured with the keyboard closed: \(app.debugDescription)"
+        )
+
         let menu = app.buttons["Menu"]
         XCTAssertTrue(menu.waitForExistence(timeout: 10))
         menu.tap()
@@ -63,7 +72,7 @@ final class MenuPresentationTests: XCTestCase {
             (editor.value as? String ?? "").contains("Restored from the menu"),
             app.debugDescription
         )
-        capture(app, name: "restored-note-no-keyboard")
+        capture(app, name: "restored-note-keyboard-closed")
     }
 
     /// About is the menu's first row (which is how it stays visible), then the inert
