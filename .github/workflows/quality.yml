@@ -140,7 +140,9 @@ jobs:
 
       # SP Chrome Morph + Layout Polish source-scan gate: enforces the 7 §3.1
       # pinned markers from qp-20260621-kmp-ios-chrome-morph-layout —
-      # (a) BottomToolbar.swift body order: closeKeyboardButton before copyButton,
+      # (a) BottomToolbar.swift glyph order pinned: copy (doc.on.doc) → paste
+      #     (doc.on.clipboard) → outdent (decrease.indent) → indent (increase.indent) →
+      #     clear (trash), i.e. the bar never reorders its actions,
       # (b) NoteEditor.swift: textContainerInset present and not = .zero + lineFragmentPadding = 0,
       # (c) ChromeOverlay.swift: no .popover( on code lines + GlassEffectContainer present
       #     + glassEffectID present anywhere in Chrome/ + accessibilityReduceMotion present,

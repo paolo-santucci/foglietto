@@ -9,9 +9,14 @@ enum NativeEditorMenu {
     /// keeps it on screen however long the recent-notes list grows. It stays a real submenu.
     ///
     /// The "Recent notes" label keeps the look of the retired submenu row (clock glyph + title)
-    /// but is inert: `.disabled` renders it as a header rather than an action. The notes live in
-    /// their own `.displayInline` group, which is what makes UIKit draw the hairline between the
-    /// header and the rows — the submenu's own header separator.
+    /// and reads as ordinary menu text rather than a greyed-out placeholder: `.disabled` — the
+    /// earlier spelling — fades the whole row, which reads as "unavailable" instead of
+    /// "informational".
+    ///
+    /// It stays inert through `.keepsMenuPresented` instead: the action body is empty, and tapping
+    /// the row keeps the menu presented, so nothing happens and the list does not vanish under the
+    /// finger. The notes live in their own `.displayInline` group, which is what makes UIKit draw
+    /// the hairline between the header and the rows — the submenu's own header separator.
     ///
     /// The title cannot be bold: menu rows expose no font control (only the private
     /// `attributedTitle` KVC or `headerViewProvider`, both off-limits). Bold headers exist only
@@ -24,7 +29,7 @@ enum NativeEditorMenu {
         let header = UIAction(
             title: String(localized: "Recent notes"),
             image: UIImage(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90"),
-            attributes: .disabled
+            attributes: .keepsMenuPresented
         ) { _ in }
         let recents = UIMenu(
             options: .displayInline,

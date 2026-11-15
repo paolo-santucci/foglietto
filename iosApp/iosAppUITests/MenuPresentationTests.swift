@@ -75,14 +75,18 @@ final class MenuPresentationTests: XCTestCase {
         capture(app, name: "restored-note-keyboard-closed")
     }
 
-    /// About is the menu's first row (which is how it stays visible), then the inert
-    /// "Recent notes" header, then the rows.
+    /// About is the menu's first row (which is how it stays visible), then the "Recent notes"
+    /// header, then the rows. The header is ordinary-looking text now, kept inert by the
+    /// `.keepsMenuPresented` attribute rather than by being disabled — so it reports as enabled.
     private func assertMenuReadingOrder(in app: XCUIApplication, about: XCUIElement) {
         let header = app.descendants(matching: .any)
             .matching(NSPredicate(format: "label == %@", "Recent notes"))
             .firstMatch
         XCTAssertTrue(header.waitForExistence(timeout: 5), app.debugDescription)
-        XCTAssertFalse(header.isEnabled, "The recent-notes header must be inert: \(app.debugDescription)")
+        XCTAssertTrue(
+            header.isEnabled,
+            "The recent-notes header is a plain-looking row, not a disabled one: \(app.debugDescription)"
+        )
         XCTAssertLessThan(about.frame.minY, header.frame.minY, "About must sit above the notes")
     }
 

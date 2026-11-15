@@ -210,7 +210,7 @@ final class ChromeBarCoordinatorTests: XCTestCase {
         }
     }
 
-    func testAboutComesFirstAndTheRecentNotesHeaderIsInert() throws {
+    func testAboutComesFirstAndTheRecentNotesHeaderReadsAsPlainText() throws {
         let menu = NativeEditorMenu.make(menuVM: makeMenu())
         XCTAssertEqual(menu.children.count, 3)
 
@@ -221,10 +221,16 @@ final class ChromeBarCoordinatorTests: XCTestCase {
         XCTAssertNotNil(about.image)
         XCTAssertEqual(about.children.count, 3)
 
-        // The header keeps the old submenu row's glyph + title but must not be actionable.
+        // The header keeps the old submenu row's glyph + title. It must read as normal text (a
+        // `.disabled` row is faded) while staying inert: `.keepsMenuPresented` + an empty body
+        // means a tap changes nothing and the menu stays open.
         let header = try XCTUnwrap(menu.children.dropFirst().first as? UIAction)
         XCTAssertEqual(header.title, String(localized: "Recent notes"))
-        XCTAssertTrue(header.attributes.contains(.disabled))
+        XCTAssertTrue(header.attributes.contains(.keepsMenuPresented))
+        XCTAssertFalse(
+            header.attributes.contains(.disabled),
+            "A disabled row is drawn faded — the header must look like ordinary menu text."
+        )
         XCTAssertNotNil(header.image)
 
         // The recents are the menu's own rows, in their own inline group — that group boundary
