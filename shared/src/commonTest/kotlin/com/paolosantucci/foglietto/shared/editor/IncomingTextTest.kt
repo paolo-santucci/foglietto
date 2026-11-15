@@ -160,4 +160,26 @@ class IncomingTextTest {
             "\u00A0",
         )
     }
+
+    // -----------------------------------------------------------------------
+    // normalizeLineEndings — the same CRLF rule, without the blank rejection
+    // -----------------------------------------------------------------------
+
+    /// Paste and restore carry line endings from elsewhere; they normalize with this
+    /// rule, so the buffer never holds a CRLF the continuation/indent math rejects.
+    @Test
+    fun given_crlf_text_when_normalizeLineEndings_then_onlyLineEndingsChange() {
+        assertEquals("a\nb\nc", normalizeLineEndings("a\r\nb\r\nc"))
+        assertEquals("a\rb", normalizeLineEndings("a\rb"), "a lone CR survives untouched")
+        assertEquals("\n", normalizeLineEndings("\r\n"))
+        assertEquals("", normalizeLineEndings(""))
+    }
+
+    /// Unlike acceptIncomingText, blank input is NOT rejected: pasting spaces still
+    /// pastes them, it just normalizes the endings.
+    @Test
+    fun given_blank_text_when_normalizeLineEndings_then_textSurvives() {
+        assertEquals("  \n ", normalizeLineEndings("  \r\n "))
+        assertEquals("\t", normalizeLineEndings("\t"))
+    }
 }

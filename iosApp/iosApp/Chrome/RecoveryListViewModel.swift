@@ -144,7 +144,13 @@ final class RecoveryListViewModel {
             // EC-04: file vanished since list() — no restore, no crash.
             return
         }
+        // The buffer's contract is LF-only: a file written before line endings were
+        // normalized (or edited externally and synced back) can hold CRLF, which makes
+        // the continuation and indent rules treat each line as having a trailing `\r`.
+        // Same rule the inbound share and the paste path apply. "On-disk text" still
+        // holds after this — only the line endings are repaired (EC-05).
+        let restored = IncomingTextKt.normalizeLineEndings(raw: text)
         // FR-13: non-keystroke-origin restore via populate(_:).
-        noteViewModel.populate(text)
+        noteViewModel.populate(restored)
     }
 }

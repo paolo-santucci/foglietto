@@ -28,9 +28,27 @@ package com.paolosantucci.foglietto.shared.editor
  */
 fun acceptIncomingText(raw: String?): String? {
     if (raw == null) return null
-    val normalized = collapseCrlf(raw)
+    val normalized = normalizeLineEndings(raw)
     return if (normalized.trim().isEmpty()) null else normalized
 }
+
+/**
+ * Line-ending normalization on its own: every CRLF pair becomes a single LF, a lone CR is
+ * copied through untouched, and a string without any CR is returned as the same instance.
+ *
+ * [acceptIncomingText] is this function plus the blank-rejection rule. It is public because
+ * the inbound share is not the only way text enters the buffer: a toolbar paste and a
+ * restored recovery note carry line endings from elsewhere, and the editor's continuation
+ * and indent rules only understand `\n`. Anything that puts text into the buffer normalizes
+ * with THIS rule, so the buffer never holds a CRLF that would make an empty numbered item or
+ * an outdent round-trip drift.
+ *
+ * Swift consumes this as `IncomingTextKt.normalizeLineEndings(_:)`.
+ *
+ * @param raw the text exactly as it arrived; never null.
+ * @return the same text with every CRLF collapsed to LF.
+ */
+fun normalizeLineEndings(raw: String): String = collapseCrlf(raw)
 
 /**
  * Collapses every CRLF pair to a single LF in one left-to-right pass.
