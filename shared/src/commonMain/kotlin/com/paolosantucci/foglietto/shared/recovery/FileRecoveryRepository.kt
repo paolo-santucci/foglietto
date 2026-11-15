@@ -100,10 +100,15 @@ class FileRecoveryRepository(
         val files = listTxtFiles()
         if (files.size <= keep) return
 
-        // Sort by filename string (incl. -N suffix) ascending — lexicographically oldest first.
-        val sorted = files.sortedBy { it.name }
-        val toDelete = sorted.take(files.size - keep)
-        for (path in toDelete) {
+        // Rank by (fixed-width stem, NUMERIC collision ordinal). Sorting the raw
+        // filename string is only right while a stem collides fewer than ten times:
+        // "-10" sorts before "-2" lexicographically, so a busy millisecond would have
+        // had its newest file deleted as the "oldest". Stems are fixed-width, so
+        // comparing them as strings is still chronological.
+        val oldestFirst = files.sortedWith(
+            compareBy<Path>({ stemOf(it.name) }, { collisionOrdinalOf(it.name) })
+        )
+        for (path in oldestFirst.take(files.size - keep)) {
             fileSystem.delete(path, mustExist = false)
         }
     }
@@ -214,6 +219,30 @@ class FileRecoveryRepository(
             // File vanished between list() and this read — tolerate (R-06, FR-18)
             ""
         }
+    }
+
+    /**
+     * The fixed-width stem of a recovery filename: `YYYY-MM-DDTHH-MM-SS-mmmZ`.
+     *
+     * The stem itself contains `-` separators, so the collision suffix is identified by
+     * the trailing `Z` rather than by splitting on the last dash.
+     */
+    private fun stemOf(filename: String): String {
+        val base = filename.removeSuffix(".txt")
+        val z = base.lastIndexOf('Z')
+        return if (z < 0) base else base.substring(0, z + 1)
+    }
+
+    /**
+     * The `-N` collision ordinal of a recovery filename, or 0 when it has none.
+     *
+     * Compared as a NUMBER: `-10` is newer than `-2`, which string order gets backwards.
+     */
+    private fun collisionOrdinalOf(filename: String): Int {
+        val base = filename.removeSuffix(".txt")
+        val z = base.lastIndexOf('Z')
+        if (z < 0 || z + 1 >= base.length) return 0
+        return base.substring(z + 1).removePrefix("-").toIntOrNull() ?: 0
     }
 
     /**

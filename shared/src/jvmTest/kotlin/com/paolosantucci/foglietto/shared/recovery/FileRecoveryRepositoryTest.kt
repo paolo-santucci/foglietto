@@ -339,12 +339,11 @@ class FileRecoveryRepositoryTest {
 
     @Test
     fun trim_tieBreakByFullFilenameString_lexicographicSuffixOrdering() {
-        // R-05 regression: stem-10.txt < stem-2.txt lexicographically (because "1" < "2")
-        // The trim must keep the lexicographically LARGEST keep filenames.
-        // Arrange: plant exactly 3 files with the same instant (forcing -1, -2 suffixes)
-        // so we have: stem.txt, stem-1.txt, stem-2.txt
-        // Then trim(2). Lexicographic order: stem-1.txt < stem-2.txt < stem.txt
-        // So stem-1.txt is the "oldest" by lex and must be deleted.
+        // R-05 regression: a colliding stem is ordered by its NUMERIC ordinal, not by the
+        // whole filename string. Files written in the same millisecond are, in write order,
+        // stem.txt → stem-1.txt → stem-2.txt, so the base file is the OLDEST and trim must
+        // delete it first. (String order would rank stem-1.txt first, and worse, put
+        // stem-10.txt before stem-2.txt.)
         val fixedNow = instant(2026, 3, 1, 0, 0, 0, 0)
         val repo = makeRepo(now = { fixedNow })
         val p0 = repo.save("base")      // stem.txt
@@ -353,10 +352,30 @@ class FileRecoveryRepositoryTest {
 
         repo.trim(2)
 
-        // Lex order: stem-1.txt < stem-2.txt < stem.txt → keep stem-2.txt and stem.txt
-        assertFalse(FileSystem.SYSTEM.exists(p1.toPath()), "stem-1.txt (lex smallest) must be deleted")
-        assertTrue(FileSystem.SYSTEM.exists(p0.toPath()), "stem.txt (lex largest) must be kept")
-        assertTrue(FileSystem.SYSTEM.exists(p2.toPath()), "stem-2.txt (middle lex) must be kept")
+        assertFalse(FileSystem.SYSTEM.exists(p0.toPath()), "stem.txt (ordinal 0) must be deleted first")
+        assertTrue(FileSystem.SYSTEM.exists(p1.toPath()), "stem-1.txt (newer) must be kept")
+        assertTrue(FileSystem.SYSTEM.exists(p2.toPath()), "stem-2.txt (newest) must be kept")
+    }
+
+    @Test
+    fun trim_ordersCollisionSuffixesNumerically_notLexicographically() {
+        // The bug this pins: with twelve saves in one millisecond the suffixes run
+        // -1…-11, and string order ranks -10 and -11 between -1 and -2 — trim would
+        // delete the two NEWEST files and keep the oldest.
+        val fixedNow = instant(2026, 3, 1, 0, 0, 0, 0)
+        val repo = makeRepo(now = { fixedNow })
+        val paths = (0 until 12).map { repo.save("note-${'$'}it") }
+
+        repo.trim(10)
+
+        assertFalse(FileSystem.SYSTEM.exists(paths[0].toPath()), "stem.txt (ordinal 0) is the oldest")
+        assertFalse(FileSystem.SYSTEM.exists(paths[1].toPath()), "stem-1.txt is the second oldest")
+        for (index in 2 until 12) {
+            assertTrue(
+                FileSystem.SYSTEM.exists(paths[index].toPath()),
+                "stem-${'$'}{index - 1}.txt must survive: it is newer than the two deleted files"
+            )
+        }
     }
 
     // ══════════════════════════════════════════════════════════════════════
