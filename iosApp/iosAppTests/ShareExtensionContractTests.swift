@@ -122,17 +122,26 @@ private struct ProjectGraph {
         let identifier: String
         let body: String
 
-        /// `key = value;` on a single line, without the trailing semicolon.
+        /// `key = value;` anywhere in the body, without the trailing semicolon.
+        ///
+        /// Xcode writes `PBXBuildFile` and `PBXFileReference` objects on a SINGLE
+        /// line, so matching only at the start of a line sees the object id and
+        /// never `fileRef`/`path` — every such lookup would return nil.
         func scalar(_ key: String) -> String? {
-            let prefix = "\(key) = "
-            for line in body.components(separatedBy: .newlines) {
-                let trimmed = line.trimmingCharacters(in: .whitespaces)
-                guard trimmed.hasPrefix(prefix) else { continue }
-                var value = String(trimmed.dropFirst(prefix.count))
-                if value.hasSuffix(";") {
-                    value.removeLast()
-                }
-                return value
+            func isKeyBoundary(_ character: Character) -> Bool {
+                character == "{" || character == ";" || character.isWhitespace
+            }
+
+            var searchStart = body.startIndex
+            while let keyRange = body.range(of: key, range: searchStart..<body.endIndex) {
+                searchStart = keyRange.upperBound
+                let isDelimited = keyRange.lowerBound == body.startIndex
+                    || isKeyBoundary(body[body.index(before: keyRange.lowerBound)])
+                guard isDelimited, body[keyRange.upperBound...].hasPrefix(" = ") else { continue }
+                let valueStart = body.index(keyRange.upperBound, offsetBy: 3)
+                guard let terminator = body[valueStart...].firstIndex(of: ";") else { continue }
+                return String(body[valueStart..<terminator])
+                    .trimmingCharacters(in: .whitespacesAndNewlines)
             }
             return nil
         }
