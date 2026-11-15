@@ -12,7 +12,10 @@
 // P7 is the test-registration guard (an unregistered test file is not a compile
 // error — it silently never runs, OQ-24) and P8 the negative fixtures that run
 // each scan over a mutated in-memory copy so a reworded project file cannot pass.
-// The catalog inventory (P9) lives in LocalizationInventoryTests.swift.
+// P9 pins the launch hand-off: the host declares the scheme the extension opens
+// and the extension dispatches the current (post-iOS-18) selector, write first.
+// The catalog inventory (P9 in the older numbering) lives in
+// LocalizationInventoryTests.swift.
 //
 // Everything is read from the repository through this file's compile-time
 // `#filePath` — no bundle resource, no device, no extension process, no App
@@ -902,6 +905,104 @@ final class ShareExtensionContractTests: XCTestCase {
         XCTAssertTrue(
             offender?.contains(Self.bundleIdentifier) == true,
             "the failure must name the second bundle id '\(Self.bundleIdentifier)', got: \(offender ?? "nil")"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: P9 - the extension asks the host to open, and the host answers
+    // -----------------------------------------------------------------------
+
+    /// The extension's hand-off half: the host declares the scheme the extension
+    /// opens, the extension dispatches the CURRENT `openURL:` selector (the
+    /// legacy one is a no-op since iOS 18), and the launch is gated on a
+    /// successful inbox write so a failed write never fakes a delivery (FR-29).
+    ///
+    /// This is a source scan: whether the dispatch actually foregrounds the app
+    /// on a device is not assertable here (there is no supported API to observe
+    /// it) — the inbox fallback is what keeps a failed dispatch harmless.
+    func testP9ExtensionAsksTheHostToOpenAndTheHostDeclaresTheScheme() throws {
+        let repository = try Repository.locate()
+        let controller = try repository.text("iosApp/ShareExtension/ShareViewController.swift")
+        let hostInfo = try repository.propertyList("iosApp/iosApp/Info.plist")
+
+        // The scheme the extension opens, read out of its own single literal.
+        let literal = try XCTUnwrap(
+            controller
+                .components(separatedBy: .newlines)
+                .first { $0.contains("hostAppURLString = \"") },
+            "ShareViewController.swift must declare the host URL it opens (FR-29)"
+        )
+        let hostURL = try XCTUnwrap(
+            literal.split(separator: "\"").dropFirst().first.map { String($0) },
+            "the hostAppURLString literal must be a quoted URL"
+        )
+        let scheme = try XCTUnwrap(
+            hostURL.split(separator: ":").first.map { String($0) },
+            "the host URL must be an absolute '<scheme>://…' URL"
+        )
+
+        let urlTypes = try XCTUnwrap(
+            hostInfo["CFBundleURLTypes"] as? [[String: Any]],
+            "iosApp/Info.plist must declare CFBundleURLTypes, or the extension's openURL: " +
+            "dispatch has no registered scheme to land on (FR-29)"
+        )
+        let declaredSchemes = urlTypes
+            .compactMap { $0["CFBundleURLSchemes"] as? [String] }
+            .flatMap { $0 }
+        XCTAssertTrue(
+            declaredSchemes.contains(scheme),
+            "the host must declare the '\(scheme)' scheme the extension opens, got: \(declaredSchemes)"
+        )
+
+        XCTAssertTrue(
+            controller.contains("openURL:options:completionHandler:"),
+            "the extension must dispatch the current openURL:options:completionHandler: selector"
+        )
+        XCTAssertFalse(
+            controller.contains("NSSelectorFromString(\"openURL:\")"),
+            "the legacy one-argument openURL: selector is a silent no-op since iOS 18"
+        )
+        XCTAssertFalse(
+            controller.contains("UIApplication.shared"),
+            "UIApplication.shared is unavailable in an app extension — the dispatch must go " +
+            "through the responder chain"
+        )
+
+        let write = try XCTUnwrap(
+            controller.range(of: "ShareInbox().write(payload)"),
+            "the extension must write the raw payload to the inbox"
+        )
+        let launch = try XCTUnwrap(
+            controller.range(of: "openHostApp()"),
+            "the extension must attempt the host launch after the write"
+        )
+        XCTAssertTrue(
+            write.lowerBound < launch.lowerBound,
+            "the inbox write must come BEFORE the launch, so a failed dispatch still delivers " +
+            "the payload on the host's next activation (FR-15/FR-29)"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: P10 - the capture has a last-resort text source
+    // -----------------------------------------------------------------------
+
+    /// Not every host app publishes the shared text as an `NSItemProvider`: some
+    /// only set `NSExtensionItem.attributedContentText`. Without the fallback the
+    /// extension completed and wrote nothing, so the share vanished with no
+    /// error anywhere — the reported "it opens and closes and nothing arrives".
+    func testP10CaptureFallsBackToTheItemContentText() throws {
+        let controller = try Repository.locate()
+            .text("iosApp/ShareExtension/ShareViewController.swift")
+
+        XCTAssertTrue(
+            controller.contains("attributedContentText"),
+            "the extension must fall back to NSExtensionItem.attributedContentText when no " +
+            "attachment yields a payload"
+        )
+        XCTAssertTrue(
+            controller.contains("loadNextCandidate()"),
+            "the fallback must stay on the attach-then-fall-back path, not replace the loader"
         )
     }
 
