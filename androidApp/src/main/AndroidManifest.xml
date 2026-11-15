@@ -20,6 +20,13 @@
       values-night/themes.xml): no action bar, and a window background equal to the editor surface,
       so the window before the first Compose frame is already the editor's colour instead of a
       framework default. The Compose Material 3 scheme (FogliettoTheme) is separate and unchanged.
+    - Inbound share entry points (TASK-05, FR-21, §5.1.8): .MainActivity is the single exported
+      activity and declares ACTION_SEND and ACTION_PROCESS_TEXT for text/plain, each with
+      CATEGORY_DEFAULT. android:launchMode="singleTop" keeps the already-running instance, so a
+      share lands in onNewIntent instead of stacking a second editor over the user's draft.
+      The path adds no <uses-permission>, no <service> and no <receiver>, and the system share
+      sheet labels the entry with the application label above — the PROCESS_TEXT menu entry reuses
+      it, so no string resource is added and the 17-key inventory stays closed.
 -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
@@ -35,11 +42,26 @@
         <activity
             android:name=".MainActivity"
             android:exported="true"
+            android:launchMode="singleTop"
             android:windowSoftInputMode="adjustResize">
 
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+
+            <!-- Inbound plain text from the system share sheet (FR-21). -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
+            </intent-filter>
+
+            <!-- Inbound selection from the text-selection toolbar (FR-21, §5.1.8). -->
+            <intent-filter>
+                <action android:name="android.intent.action.PROCESS_TEXT" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <data android:mimeType="text/plain" />
             </intent-filter>
         </activity>
     </application>

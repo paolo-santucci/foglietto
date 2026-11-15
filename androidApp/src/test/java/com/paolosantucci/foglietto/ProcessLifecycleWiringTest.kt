@@ -134,6 +134,37 @@ class ProcessLifecycleWiringTest {
         assertEquals("", container.editor.value.text)
     }
 
+    @Test
+    fun `the ON_START reset runs before the pending share is applied`() {
+        // FR-23 / §5.1.8 ordering: reset -> (save) -> populate is the only legal order. A share
+        // that arrived before ON_START must therefore be seeded *after* the empty reset, so the
+        // effect trace has to show the reset write first and the seed second — with no save in
+        // between (the reset left the buffer empty, so the collision save is a trim-guard no-op).
+        val effects = mutableListOf<String>()
+        val recovery = RecordingRecoveryRepository(effects = effects)
+        val container = effectsContainer(recovery, effects)
+        val lifecycle = LifecycleRegistry(FakeLifecycleOwner())
+        assertTrue(ProcessLifecycleRegistration().attach(container, lifecycle))
+
+        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START)
+        container.editor.onInput(TextFieldValue("draft", TextRange(5)))
+        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_STOP)
+        container.acceptInboundText("new")
+
+        // Stashed, not applied: the process is backgrounded until the next ON_START.
+        assertEquals("draft", container.editor.value.text)
+
+        effects.clear()
+        lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_START)
+
+        assertEquals(
+            "ON_START must reset the buffer first and seed the payload afterwards (§5.1.8)",
+            listOf("buffer:@0", "buffer:new@0"),
+            effects,
+        )
+        assertEquals("new", container.editor.value.text)
+    }
+
     // ── Structural pins (m8 analogue; the dedicated gate lands in TASK-24) ────────────────────
 
     @Test

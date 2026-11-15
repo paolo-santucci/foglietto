@@ -2,6 +2,7 @@ package com.paolosantucci.foglietto
 
 import android.content.Context
 import com.paolosantucci.foglietto.shared.AndroidContext
+import com.paolosantucci.foglietto.shared.editor.acceptIncomingText
 import com.paolosantucci.foglietto.shared.recovery.RecoveryRepository
 import com.paolosantucci.foglietto.shared.recovery.SaveNoteToRecovery
 import com.paolosantucci.foglietto.shared.recovery.createAndroidRecoveryRepository
@@ -34,10 +35,19 @@ import java.util.concurrent.Executors
  * configuration change inert: rotation destroys only the Activity, the process lifecycle never
  * emits, so neither seam runs (FR-14).
  *
- *  - [onProcessStopped] — background episode: save the raw buffer text once (FR-11, FR-12).
+ *  - [onProcessStopped] — background episode: flip [foreground] and save the raw buffer text once
+ *    (FR-11, FR-12, FR-23).
  *  - [onProcessStarted] — foreground return: empty the buffer **and** clear both undo/redo stacks,
- *    so Undo cannot resurrect backgrounded text (EC-23). The text is recoverable through Recent
- *    notes instead.
+ *    so Undo cannot resurrect backgrounded text (EC-23), then seed a stashed inbound payload.
+ *    The text is recoverable through Recent notes instead.
+ *
+ * ## Inbound shares (FR-23, FR-24)
+ *
+ * [acceptInboundText] is the single entry point for a payload arriving from the share sheet or
+ * `ACTION_PROCESS_TEXT`. It never touches the buffer directly: the payload waits in a memory-only
+ * slot until the process is foregrounded, and is then applied as save-then-populate so the text it
+ * replaces is recoverable (EC-22). A share that arrives before the process reports ON_START —
+ * the cold-start case — therefore never races the reset (EC-20, EC-21).
  *
  * Nothing here touches `savedInstanceState`, disk or any store for buffer/caret/selection/history:
  * the buffer is ephemeral by product contract, and the only persistence is the ON_STOP save
@@ -63,8 +73,38 @@ class AppContainer internal constructor(
     private val history: EditorHistory,
 ) {
 
+    /**
+     * The inbound payload waiting for the next foreground return, already normalized by the shared
+     * acceptance rule; `null` when nothing is waiting. Memory-only: it never survives process death
+     * (EC-24).
+     */
+    private var pending: String? = null
+
+    /**
+     * Whether the process is currently foregrounded. Only a foreground process may seed a payload,
+     * and the flag flips *before* the ON_STOP save so a share arriving mid-transition is stashed
+     * (FR-23).
+     */
+    private var foreground: Boolean = false
+
+    /**
+     * Hands a raw inbound payload (share sheet / `ACTION_PROCESS_TEXT`) to the graph (FR-23, FR-24).
+     *
+     * The shared acceptance rule owns normalization and blank rejection — never this class
+     * (NFR-05). The *latest* payload wins, including a blank one, which clears the slot. A
+     * foregrounded process applies it immediately; a backgrounded one only stashes it until the
+     * next [onProcessStarted], so a cold-start share cannot race the reset (EC-20, EC-21).
+     */
+    fun acceptInboundText(raw: String?) {
+        pending = acceptIncomingText(raw)
+        if (foreground) applyPendingInbound()
+    }
+
     /** Process left the foreground: one burst-guarded save of the raw buffer text (FR-11, FR-12). */
     fun onProcessStopped() {
+        // Flip first: a share arriving during the background transition must be stashed, not
+        // applied over the text this save is writing (FR-23).
+        foreground = false
         coordinator.onProcessStop()
     }
 
@@ -72,10 +112,35 @@ class AppContainer internal constructor(
      * Process returned to the foreground: empty the buffer and drop both history stacks (FR-13,
      * EC-23). The reset itself records a snapshot in [history]; clearing afterwards makes it
      * unreachable, so a later Undo cannot resurrect backgrounded text.
+     *
+     * The pending payload is applied *after* that reset — the only legal order (§5.1.8).
      */
     fun onProcessStarted() {
         coordinator.onProcessStart()
         history.clear()
+        foreground = true
+        applyPendingInbound()
+    }
+
+    /**
+     * Seeds the stashed payload: save the text it replaces, then write it as one undoable
+     * programmatic edit (FR-24, EC-22).
+     *
+     * A throwing save keeps both the buffer and the payload — the payload is retained for the next
+     * foreground return and nothing is logged (FR-07, EC-10). A `null` return from
+     * [LifecycleSaveCoordinator.saveNow] (trim-guard no-op or bounded-await timeout) is **not** a
+     * failure: the write was already dispatched with the pre-seed snapshot, so seeding is safe.
+     */
+    private fun applyPendingInbound() {
+        val text = pending ?: return
+        try {
+            coordinator.saveNow()
+        } catch (_: Exception) {
+            // FR-07: the payload stays pending and the buffer stays intact; no log, no crash.
+            return
+        }
+        editor.populate(text)
+        pending = null
     }
 }
 
