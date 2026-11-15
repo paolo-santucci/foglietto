@@ -16,4 +16,16 @@
     <!-- GNOME "Brown 5" — branding primary (dark): the ink of the launcher mark. -->
     <color name="brand_brown">#873000</color>
 
+    <!--
+        The launcher artwork's own ground (the full-bleed field inside
+        `drawable/ic_launcher_foreground.xml`), and the same blue as the iOS AccentColor
+        (#2B71B9) within rounding. The adaptive-icon background, and therefore the Android 12+
+        splash that references it, is this colour — not the canon's branding yellow.
+
+        CANON GAP: `ui-design-bible §Colour & branding tokens` names only the yellow/brown pair;
+        this blue comes from the 2026-11 icon artwork and is identity/launch-only, like the pair.
+        Flagged for the canon owner rather than silently redefining the branding palette.
+    -->
+    <color name="brand_blue">#296FB3</color>
+
 </resources>

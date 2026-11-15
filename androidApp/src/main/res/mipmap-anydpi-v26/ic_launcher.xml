@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
     Adaptive launcher icon (TASK-12, FR-41 / OQ-05) — the mipmap <application android:icon>
-    resolves to on API 26+ (minSdk 26). Layers: brand-light background (@color/brand_yellow) + the
-    brand-dark sheet vector, plus a <monochrome> layer for themed icons (S11).
+    resolves to on API 26+ (minSdk 26). Layers: the artwork's own blue ground
+    (@color/ic_launcher_background -> @color/brand_blue) + the illustration vector, plus a
+    <monochrome> layer for themed icons (S11).
 
     <monochrome> is read only by API 33+ launchers; the adaptive-icon parser ignores unknown child
     elements on older releases, so declaring it here is safe for every API this app supports. It

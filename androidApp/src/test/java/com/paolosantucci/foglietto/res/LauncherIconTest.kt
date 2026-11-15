@@ -22,9 +22,9 @@ import org.w3c.dom.Element
  *  - the foreground layer is a real `<vector>` (an inline bitmap would silently bloat and
  *    blur — the derivation is a faithful vector mark, per OQ-05) with a square viewport, every
  *    path painted;
- *  - the background layer resolves to a declared `<color>` which aliases `@color/brand_yellow`,
- *    and that token is the canon brand light token (`#F6D32D`, ui-design-bible §Colour & branding
- *    tokens).
+ *  - the background layer resolves to a declared `<color>` which aliases `@color/brand_blue`
+ *    (`#296FB3`) — the launcher artwork's own ground, and the token the Android 12+ splash paints
+ *    by reference (`ThemeResourcesTest`).
  *
  * The foreground is an imported illustration: it carries its own palette (hex fills plus
  * `<aapt:attr>` gradient stops), so the test asserts that every path is *painted*, not that it
@@ -159,19 +159,24 @@ class LauncherIconTest {
             "#873000",
             tokens["brand_brown"],
         )
+        assertEquals(
+            "The adaptive-icon background (and the splash) must use the artwork's blue.",
+            "#296FB3",
+            tokens["brand_blue"],
+        )
     }
 
     @Test
-    fun `the background colour aliases the brand light token`() {
+    fun `the background colour aliases the artwork blue`() {
         // The adaptive background must not restate the hex: it references the palette resource, so
-        // a brand tweak cannot leave the launcher behind (S11).
+        // the icon and the splash cannot drift apart (S11).
         val values = parse(mainDir.resolve("res/values/ic_launcher_background.xml"))
         val color = values.elements("color")
             .single { it.getAttribute("name") == "ic_launcher_background" }
 
         assertEquals(
-            "The adaptive-icon background must alias @color/brand_yellow.",
-            "@color/brand_yellow",
+            "The adaptive-icon background must alias @color/brand_blue.",
+            "@color/brand_blue",
             color.textContent.trim().lowercase(),
         )
     }

@@ -2,19 +2,15 @@
 <!--
     Adaptive launcher icon — background layer (TASK-12, FR-41 / OQ-05).
 
-    An alias for the brand light token in `res/values/colors.xml` (S11): the icon, the vector ink
-    and the branding palette now have one definition each, so a brand tweak cannot leave the
-    launcher on a stale hex value. The fill is the canon brand pairing's LIGHT token (#F6D32D,
-    ui-design-bible §Colour & branding tokens, "Branding primary (light)"), not the in-editor
-    palette: branding colours are identity/launch colours and are never used on editor chrome.
+    An alias for the launcher artwork's ground in `res/values/colors.xml` (S11): the icon, the
+    Android 12+ splash and the artwork now name one colour, so they cannot drift apart. The fill is
+    `brand_blue` (#296FB3) — the full-bleed field inside the launcher vector — not the branding
+    yellow: the 2026-11 artwork replaced the yellow plate, and the splash follows the icon by
+    reference (`values-v31/themes.xml`).
 
-    CANON GAP: the canon names a DARK-mode adaptive-icon background variant (#873000, "Branding
-    primary (dark)"). A per-scheme adaptive-icon background needs a `res/values-night/` colour
-    override, which is outside this task's scope; safe to defer — the light token is the documented
-    default, OQ-05 assigns final icon production (incl. dark variants) to the later Play wave, and
-    the brand dark token is already the foreground ink so the mark keeps its identity on either
-    background once the night variant lands.
+    The value is scheme-independent on purpose: the icon ships one background layer, so the splash
+    must match it in dark mode too.
 -->
 <resources>
-    <color name="ic_launcher_background">@color/brand_yellow</color>
+    <color name="ic_launcher_background">@color/brand_blue</color>
 </resources>

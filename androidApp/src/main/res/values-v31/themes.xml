@@ -4,9 +4,9 @@
 
     The system splash composes two layers: an animated icon (the app icon, by default) over
     `android:windowSplashScreenBackground`. Painting that background with the adaptive icon's own
-    background token (`@color/ic_launcher_background` → `@color/brand_yellow`, canon branding
-    light) makes the icon's square bleed into the screen, so the launch reads as one yellow
-    surface with the small brown mark on it — no visible icon plate, no white flash mid-launch.
+    background token (`@color/ic_launcher_background` → `@color/brand_blue`, the artwork's ground)
+    makes the icon's square bleed into the screen, so the launch reads as one blue surface with
+    the illustration on it — no visible icon plate, no white flash mid-launch.
 
     Deliberately NOT `android:windowBackground`: that one is the app window behind the first
     Compose frame and must stay the editor canvas (see `values/themes.xml`, `Theme.Foglietto.Base`).

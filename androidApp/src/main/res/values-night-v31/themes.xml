@@ -7,7 +7,7 @@
     splash item would silently disappear. Overriding the style here restores it.
 
     The value is scheme-INdependent on purpose: the launcher icon has one background token
-    (`@color/ic_launcher_background` → `@color/brand_yellow`) and no `values-night` variant, so the
+    (`@color/ic_launcher_background` → `@color/brand_blue`) and no `values-night` variant, so the
     splash must stay the icon's colour in dark mode too — matching the icon is the whole point.
     If the icon ever gains a dark background layer, this is the second place to point at it.
 -->
