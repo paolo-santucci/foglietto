@@ -338,6 +338,7 @@ final class ShareInboxDrainerTests: XCTestCase {
         let inbox = InboxStub(payload: "old")
         let drainer = makeDrainer(inbox: inbox, recorder: recorder, save: {
             inbox.write("new")
+            return true
         })
 
         drainer.drain()

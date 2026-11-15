@@ -217,7 +217,7 @@ final class ContentViewLifecycleTests: XCTestCase {
                 journal.append("normalize")
                 return raw
             },
-            saveCurrentBuffer: { _ = coordinator.saveCurrentBuffer() },
+            saveCurrentBuffer: { () -> Bool in coordinator.saveCurrentBuffer() },
             populate: { viewModel.populate($0) }
         )
         let revisionsBefore = viewModel.populationRevision
@@ -257,7 +257,7 @@ final class ContentViewLifecycleTests: XCTestCase {
             read: { "new" },
             clear: {},
             normalize: { $0 },
-            saveCurrentBuffer: { _ = coordinator.saveCurrentBuffer() },
+            saveCurrentBuffer: { () -> Bool in coordinator.saveCurrentBuffer() },
             populate: { viewModel.populate($0) }
         )
         let editor = NoteEditor(viewModel: viewModel)
@@ -349,7 +349,7 @@ final class ContentViewLifecycleTests: XCTestCase {
         let drainer = ShareInboxDrainer(
             inbox: inbox,
             normalize: { IncomingTextKt.acceptIncomingText(raw: $0) },
-            saveCurrentBuffer: { _ = coordinator.saveCurrentBuffer() },
+            saveCurrentBuffer: { () -> Bool in coordinator.saveCurrentBuffer() },
             populate: { viewModel.populate($0) }
         )
         XCTAssertTrue(inbox.write("warm share"), "Precondition: the extension wrote the inbox")
@@ -419,7 +419,10 @@ final class ContentViewLifecycleTests: XCTestCase {
             read: { drainSteps.append("read"); return "new" },
             clear: { drainSteps.append("clear") },
             normalize: { drainSteps.append("normalize"); return $0 },
-            saveCurrentBuffer: { drainSteps.append("save") },
+            saveCurrentBuffer: {
+                drainSteps.append("save")
+                return true
+            },
             populate: { _ in drainSteps.append("populate") }
         )
 
@@ -448,7 +451,10 @@ final class ContentViewLifecycleTests: XCTestCase {
             read: { drainSteps.append("read"); return "new" },
             clear: { drainSteps.append("clear") },
             normalize: { drainSteps.append("normalize"); return $0 },
-            saveCurrentBuffer: { drainSteps.append("save") },
+            saveCurrentBuffer: {
+                drainSteps.append("save")
+                return true
+            },
             populate: { _ in drainSteps.append("populate") }
         )
 
@@ -490,7 +496,7 @@ final class ContentViewLifecycleTests: XCTestCase {
             read: { nil },
             clear: { clearCount += 1 },
             normalize: { $0 },
-            saveCurrentBuffer: { _ = coordinator.saveCurrentBuffer() },
+            saveCurrentBuffer: { () -> Bool in coordinator.saveCurrentBuffer() },
             populate: { viewModel.populate($0) }
         )
 
