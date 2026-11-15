@@ -11,7 +11,9 @@
 	<key>provisioningProfiles</key>
 	<dict>
 		<key>com.paolosantucci.foglietto</key>
-		<string>__PROFILE_UUID__</string>
+		<string>__APP_PROFILE_UUID__</string>
+		<key>com.paolosantucci.foglietto.ShareExtension</key>
+		<string>__EXTENSION_PROFILE_UUID__</string>
 	</dict>
 	<key>signingCertificate</key>
 	<string>Apple Distribution</string>

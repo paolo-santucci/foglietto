@@ -219,10 +219,19 @@ jobs:
         env:
           IOS_DIST_CERT_P12_BASE64: ${{ secrets.IOS_DIST_CERT_P12_BASE64 }}
           IOS_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_PROVISIONING_PROFILE_BASE64 }}
+          IOS_EXTENSION_PROVISIONING_PROFILE_BASE64: ${{ secrets.IOS_EXTENSION_PROVISIONING_PROFILE_BASE64 }}
         run: |
           mkdir -p "$RUNNER_TEMP/signing"
           echo "$IOS_DIST_CERT_P12_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/dist.p12"
           echo "$IOS_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/profile.mobileprovision"
+
+          # The archive now contains two signable bundles, so a second profile is
+          # mandatory. Fail here rather than let -exportArchive discover it.
+          if [ -z "$IOS_EXTENSION_PROVISIONING_PROFILE_BASE64" ]; then
+            echo "ERROR: IOS_EXTENSION_PROVISIONING_PROFILE_BASE64 is empty — the extension profile secret is missing." >&2
+            exit 1
+          fi
+          echo "$IOS_EXTENSION_PROVISIONING_PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/signing/extension.mobileprovision"
 
       - name: Create ephemeral keychain and import certificate
         env:
@@ -252,14 +261,31 @@ jobs:
             -k "$IOS_KEYCHAIN_PASSWORD" \
             "$KEYCHAIN"
 
-      - name: Install provisioning profile
+      - name: Install provisioning profiles
         run: |
-          # Extract UUID from the provisioning profile plist payload
+          # One UUID per signable bundle: the host app and the share extension
+          # have different bundle ids and therefore different profiles.
           PROFILE_UUID=$(security cms -D -i "$RUNNER_TEMP/signing/profile.mobileprovision" \
             | plutil -extract UUID raw -)
+          EXTENSION_PROFILE_UUID=$(security cms -D -i "$RUNNER_TEMP/signing/extension.mobileprovision" \
+            | plutil -extract UUID raw -)
 
-          # Mask the UUID so it never appears in plain text in CI logs
+          # Both UUIDs are load-bearing: an empty one leaves a target unsigned.
+          if [ -z "$PROFILE_UUID" ] || [ -z "$EXTENSION_PROFILE_UUID" ]; then
+            echo "ERROR: could not resolve both provisioning-profile UUIDs (app and extension must each yield one)." >&2
+            exit 1
+          fi
+
+          # Two distinct profiles are mandatory: an identical UUID means the
+          # extension would be signed with the app profile.
+          if [ "$PROFILE_UUID" = "$EXTENSION_PROFILE_UUID" ]; then
+            echo "ERROR: host and extension resolved to the SAME profile UUID — provide a profile issued for the extension bundle id." >&2
+            exit 1
+          fi
+
+          # Mask the UUIDs so they never appear in plain text in CI logs
           echo "::add-mask::$PROFILE_UUID"
+          echo "::add-mask::$EXTENSION_PROFILE_UUID"
 
           # Non-fatal profile diagnostic — prints expiry + does-not-gate the run.
           security cms -D -i "$RUNNER_TEMP/signing/profile.mobileprovision" \
@@ -270,9 +296,12 @@ jobs:
           mkdir -p "$PROFILES_DIR"
           cp "$RUNNER_TEMP/signing/profile.mobileprovision" \
             "$PROFILES_DIR/$PROFILE_UUID.mobileprovision"
+          cp "$RUNNER_TEMP/signing/extension.mobileprovision" \
+            "$PROFILES_DIR/$EXTENSION_PROFILE_UUID.mobileprovision"
 
-          # Persist UUID for subsequent steps via GITHUB_ENV
+          # Persist UUIDs for subsequent steps via GITHUB_ENV
           echo "PROFILE_UUID=$PROFILE_UUID" >> "$GITHUB_ENV"
+          echo "EXTENSION_PROFILE_UUID=$EXTENSION_PROFILE_UUID" >> "$GITHUB_ENV"
 
       - name: Decode App Store Connect API key
         env:
@@ -290,9 +319,12 @@ jobs:
           IOS_DEVELOPMENT_TEAM_ID: ${{ secrets.IOS_DEVELOPMENT_TEAM_ID }}
         run: |
           # Template is now at the repo root (relocated from ios/ in TASK-03).
+          # Two bundle ids, two DISTINCT placeholders: each signed target is
+          # exported with its own provisioning profile.
           sed \
             -e "s|__TEAM_ID__|$IOS_DEVELOPMENT_TEAM_ID|g" \
-            -e "s|__PROFILE_UUID__|$PROFILE_UUID|g" \
+            -e "s|__APP_PROFILE_UUID__|$PROFILE_UUID|g" \
+            -e "s|__EXTENSION_PROFILE_UUID__|$EXTENSION_PROFILE_UUID|g" \
             ExportOptions.plist.template \
             > "$RUNNER_TEMP/ExportOptions.plist"
 
@@ -300,9 +332,13 @@ jobs:
       # Build flow (KMP / native):
       #   1. Assemble the shared XCFramework via Gradle Kotlin/Native.
       #   2. Archive the native iosApp Xcode project directly via xcodebuild,
-      #      passing signing identity + team + profile as CLI overrides on the
-      #      iosApp target (no CocoaPods targets to avoid, no xcodeproj Ruby
-      #      patch needed — CLI overrides are safe on a single-target project).
+      #      passing signing identity + team as CLI overrides, plus one profile
+      #      specifier PER TARGET through the IOS_APP_PROFILE_SPECIFIER /
+      #      IOS_EXTENSION_PROFILE_SPECIFIER build settings that the project
+      #      file's per-target settings resolve (no CocoaPods targets to avoid,
+      #      no xcodeproj Ruby patch needed). A project-wide profile override
+      #      would sign the share extension with the app profile, so it is
+      #      deliberately absent.
       #   3. Export the IPA from the archive.
       #
       # This replaces the Flutter → Ruby xcodeproj patch → rm Runner.app →
@@ -339,7 +375,8 @@ jobs:
             MARKETING_VERSION="$MV" \
             CURRENT_PROJECT_VERSION="$CPV" \
             DEVELOPMENT_TEAM="$IOS_DEVELOPMENT_TEAM_ID" \
-            PROVISIONING_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            IOS_APP_PROFILE_SPECIFIER="$PROFILE_UUID" \
+            IOS_EXTENSION_PROFILE_SPECIFIER="$EXTENSION_PROFILE_UUID" \
             CODE_SIGN_STYLE=Manual \
             CODE_SIGN_IDENTITY="Apple Distribution" \
             archive
@@ -436,7 +473,11 @@ jobs:
           security delete-keychain "$RUNNER_TEMP/signing/foglietto-ci.keychain-db" 2>/dev/null || true
           rm -f "$RUNNER_TEMP/signing/dist.p12"
           rm -f "$RUNNER_TEMP/signing/profile.mobileprovision"
+          rm -f "$RUNNER_TEMP/signing/extension.mobileprovision"
           rm -f "$HOME/.appstoreconnect/private_keys/AuthKey_${APP_STORE_CONNECT_API_KEY_ID}.p8"
           if [ -n "$PROFILE_UUID" ]; then
             rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$PROFILE_UUID.mobileprovision"
+          fi
+          if [ -n "$EXTENSION_PROFILE_UUID" ]; then
+            rm -f "$HOME/Library/MobileDevice/Provisioning Profiles/$EXTENSION_PROFILE_UUID.mobileprovision"
           fi
