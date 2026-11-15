@@ -2,17 +2,16 @@ package com.paolosantucci.foglietto.ui.recovery
 
 import android.content.res.Configuration
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.key
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
@@ -27,17 +26,18 @@ import com.paolosantucci.foglietto.ui.theme.FogliettoTheme
 /*
  * The Recent-notes *list* — restore-only by construction (FR-26..FR-30).
  *
- * It is a `LazyListScope` extension rather than a composable, because the list is one section of
- * the shell's ⋮ sheet (header, notes, divider, About row) and the sheet owns the single
- * `LazyColumn`. Extracting the items keeps the row rendering — preview, subtitle, tap target,
- * accessibility label, `animateItem()` — in exactly one place for any future host.
+ * It is a plain composable, not a `LazyListScope` extension: the ⋮ popover is a Material 3
+ * `DropdownMenu`, whose content `Column` is already scrollable and is queried for intrinsic
+ * measurements. A lazy list (a `SubcomposeLayout`) inside it throws
+ * "Asking for intrinsic measurements of SubcomposeLayout layouts is not supported" at measure time,
+ * so the rows are emitted eagerly and the menu's own scroll owns any overflow. Ten notes is the
+ * whole store, so eager rendering costs nothing.
  *
  * Traced to `.claude/docs/canon/ui-design-bible.md`:
  *  - §Design ethos ("every adaptation must subtract visual weight"): no cards, no icons, no
  *    delete/swipe affordance, no search — a header, a divider-free list, one empty state (FR-30).
- *  - §Motion: `Modifier.animateItem()` on the rows is the canon's "crossfade is the universal
- *    transition" applied to list changes (FR-35). No hand-rolled animation, no scale/parallax; the
- *    sheet's own slide/scrim is the stock Material 3 `ModalBottomSheet` motion.
+ *  - §Motion: the popover's own show/hide is the stock Material 3 menu motion; the rows carry no
+ *    hand-rolled animation, no scale/parallax.
  *  - §Accessibility: every row is a single merged semantics node labelled `restore_note_label`
  *    (preview + subtitle) for TalkBack (FR-27, NFR-04); rows are ≥ 48dp hit targets
  *    (§Touch-target note) and the empty state is a text node, not a colour-only cue.
@@ -47,28 +47,27 @@ import com.paolosantucci.foglietto.ui.theme.FogliettoTheme
  */
 
 /**
- * Appends the Recent-notes section to a host's lazy list: one row per note (newest-first, in the
- * holder's order) or the localized empty state when there is nothing to restore (FR-28).
+ * The Recent-notes section: one row per note (newest-first, in the holder's order) or the localized
+ * empty state when there is nothing to restore (FR-28).
  *
  * @param rows the holder's rows, already previewed and subtitled by `shared` (FR-27).
  * @param isEmpty `true` renders [NoRecentNotes] instead of the rows.
- * @param onSelectRow the row tap, before any dismissal animation; the host wires
- *   `holder.select(row.path)` so this file owns no editor state (FR-29).
+ * @param onSelectRow the row tap; the host wires `holder.select(row.path)` so this file owns no
+ *   editor state (FR-29).
  */
-internal fun LazyListScope.recentNoteItems(
+@Composable
+internal fun RecentNoteRows(
     rows: List<RecoveryRow>,
     isEmpty: Boolean,
     onSelectRow: (RecoveryRow) -> Unit,
 ) {
     if (isEmpty) {
-        item(key = "no-recent-notes") { NoRecentNotes() }
+        NoRecentNotes()
     } else {
-        items(items = rows, key = { row -> row.path }) { row ->
-            RecoveryNoteRow(
-                row = row,
-                modifier = Modifier.animateItem(),
-                onClick = { onSelectRow(row) },
-            )
+        rows.forEach { row ->
+            key(row.path) {
+                RecoveryNoteRow(row = row, onClick = { onSelectRow(row) })
+            }
         }
     }
 }
@@ -143,8 +142,8 @@ private fun RecoveryNoteRow(
 private fun RecentNoteItemsPreview() {
     FogliettoTheme {
         Surface(color = MaterialTheme.colorScheme.surface) {
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                recentNoteItems(rows = PREVIEW_ROWS, isEmpty = false, onSelectRow = {})
+            Column(modifier = Modifier.fillMaxWidth()) {
+                RecentNoteRows(rows = PREVIEW_ROWS, isEmpty = false, onSelectRow = {})
             }
         }
     }
@@ -156,8 +155,8 @@ private fun RecentNoteItemsPreview() {
 private fun RecentNoteItemsEmptyPreview() {
     FogliettoTheme {
         Surface(color = MaterialTheme.colorScheme.surface) {
-            LazyColumn(modifier = Modifier.fillMaxWidth()) {
-                recentNoteItems(rows = emptyList(), isEmpty = true, onSelectRow = {})
+            Column(modifier = Modifier.fillMaxWidth()) {
+                RecentNoteRows(rows = emptyList(), isEmpty = true, onSelectRow = {})
             }
         }
     }

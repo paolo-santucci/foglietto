@@ -9,14 +9,14 @@ import org.junit.Test
 /**
  * Tier A — plain JVM, no Robolectric (FR-26, FR-27, FR-28, FR-30).
  *
- * Compose UI interaction tests are Tier C and out of scope this wave (OQ-20), so the sheet's
- * contract is pinned here, at the seam [MenuSheet] actually drives:
+ * Compose UI interaction tests are Tier C and out of scope this wave (OQ-20), so the popover's
+ * contract is pinned here, at the seam [MenuPopoverContent] actually drives:
  *
  *  - constructing the seam performs **zero** fetches — the list is never loaded at launch;
  *  - [RecoverySheetModel.open] invokes the refresh exactly once per open, every open, so a note
- *    saved while the app is running appears the next time the ⋮ sheet is opened (FR-26);
+ *    saved while the app is running appears the next time the ⋮ menu is opened (FR-26);
  *  - [RecoverySheetModel.close] is inert (no fetch, no state change);
- *  - an empty row list is the empty state (FR-28) — the sheet renders the localized
+ *  - an empty row list is the empty state (FR-28) — the popover renders the localized
  *    `no_recent_notes` copy off this flag and never crashes on `[]`;
  *  - rows are forwarded verbatim and in the holder's newest-first order: no local truncation,
  *    no local date formatting (FR-27);

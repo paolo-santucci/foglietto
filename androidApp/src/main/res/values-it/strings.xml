@@ -1,10 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    Foglietto — italiana, stessa inventory di 17 chiavi di values/strings.xml (FR-36, NFR-06).
+    Foglietto — italiana, stessa inventory di 19 chiavi di values/strings.xml (FR-36, NFR-06).
 
     I valori sono ripresi pari pari da iosApp/iosApp/Localizable.xcstrings dove la chiave
     esiste ancora (compreso l'apostrofo tipografico di «Svuota l’editor»); `redo` e
-    `editor_cleared` sono le due chiavi nuove, scritte qui.
+    `editor_cleared` sono le due chiavi nuove, scritte qui, e `copy`/`paste` riprendono le
+    etichette iOS (Copia, Incolla) per i due comandi nuovi della barra in basso.
 
     `restore_note_label` mantiene entrambi i segnaposto posizionali: %1$s = anteprima nota,
     %2$s = sottotitolo con data di salvataggio.
@@ -19,6 +20,8 @@
     <string name="outdent">Riduci rientro</string>
     <string name="menu">Menu</string>
     <string name="open_menu">Apri il menu</string>
+    <string name="copy">Copia</string>
+    <string name="paste">Incolla</string>
     <string name="recent_notes">Note recenti</string>
     <string name="no_recent_notes">Nessuna nota recente.</string>
     <string name="restore_note_label">Ripristina nota: %1$s, salvata il %2$s</string>

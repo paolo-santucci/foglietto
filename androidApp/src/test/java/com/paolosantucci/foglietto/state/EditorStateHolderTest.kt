@@ -24,6 +24,8 @@ import org.junit.Test
  *  - every other delta — a selection-spanning replacement, a commit that grows the line by more
  *    than a correction — passes through without consulting the shared rule at all;
  *  - indent/outdent apply the shared `LineIndent` result as exactly one write;
+ *  - `pasteAtCaret` is the clipboard half of the same contract: one write, LF-normalized through
+ *    the shared rule, one undo step, caret after the pasted text, and never a list continuation;
  *  - `populate` resets the caret to zero, bumps the scroll-to-top signal and records a snapshot;
  *  - undo/redo restore text and selection as a single write;
  *  - `shareEnabled` is the shared [canShare] predicate, never a local trim;
@@ -263,6 +265,144 @@ class EditorStateHolderTest {
 
         assertEquals("hello", harness.holder.value.text)
         assertEquals(TextRange(5), harness.holder.value.selection)
+    }
+
+    // ── Clipboard origin (Android parity with iOS `pasteAtCaret()`) ──────────
+
+    @Test
+    fun `paste inserts at the caret and leaves the caret after the pasted text`() {
+        val harness = Harness()
+        harness.seed("hello", caret = 5)
+        val writesBefore = harness.writes
+
+        harness.holder.pasteAtCaret(" world")
+
+        assertEquals("hello world", harness.holder.value.text)
+        assertEquals(TextRange(11), harness.holder.value.selection)
+        // One write: text and caret land together, like every other programmatic mutation.
+        assertEquals(1, harness.writes - writesBefore)
+    }
+
+    @Test
+    fun `paste replaces the current selection`() {
+        val harness = Harness()
+        harness.seed("hello world")
+        harness.holder.onInput(TextFieldValue("hello world", TextRange(6, 11)))
+
+        harness.holder.pasteAtCaret("there")
+
+        assertEquals("hello there", harness.holder.value.text)
+        assertEquals(TextRange(11), harness.holder.value.selection)
+    }
+
+    @Test
+    fun `paste normalizes CRLF before the text reaches the buffer`() {
+        // The continuation and indent rules only understand "\n": a CRLF note pasted unnormalized
+        // would make empty numbered items and outdent round-trip drift (shared rule, NFR-05).
+        val harness = Harness()
+        harness.seed("a")
+
+        harness.holder.pasteAtCaret("\r\nb\r\n")
+
+        assertEquals("a\nb\n", harness.holder.value.text)
+        assertEquals(TextRange(4), harness.holder.value.selection)
+        assertEquals(0, harness.continuationInvocations)
+    }
+
+    @Test
+    fun `a pasted newline never triggers list continuation`() {
+        // A paste is a programmatic write: the pasted "\n" must not be resolved as an Enter.
+        val harness = Harness()
+        harness.seed("- item", caret = 6)
+
+        harness.holder.pasteAtCaret("\n")
+
+        assertEquals("- item\n", harness.holder.value.text)
+        assertEquals(TextRange(7), harness.holder.value.selection)
+        assertEquals(0, harness.continuationInvocations)
+    }
+
+    @Test
+    fun `an empty paste writes nothing and records no undo step`() {
+        val harness = Harness()
+        harness.seed("hello", caret = 5)
+        val writesBefore = harness.writes
+
+        harness.holder.pasteAtCaret("")
+
+        assertEquals(TextFieldValue("hello", TextRange(5)), harness.holder.value)
+        assertEquals(0, harness.writes - writesBefore)
+
+        // One Undo still reverts the typing run, i.e. the no-op paste added no step of its own.
+        harness.holder.undo()
+        assertEquals("", harness.holder.value.text)
+    }
+
+    @Test
+    fun `paste is exactly one undo step and closes the typing run`() {
+        val harness = Harness()
+        harness.seed("- item", caret = 6)
+        harness.holder.pasteAtCaret("\n- pasted")
+
+        assertEquals("- item\n- pasted", harness.holder.value.text)
+
+        val writesBeforeUndo = harness.writes
+        harness.holder.undo()
+
+        // The paste reverts on its own, caret included; the typing before it is a separate step.
+        assertEquals("- item", harness.holder.value.text)
+        assertEquals(TextRange(6), harness.holder.value.selection)
+        assertEquals(1, harness.writes - writesBeforeUndo)
+
+        harness.holder.undo()
+        assertEquals("", harness.holder.value.text)
+    }
+
+    @Test
+    fun `a caret move records no undo step`() {
+        val harness = Harness()
+        harness.seed("hello", caret = 5)
+
+        // A selection-only change: same text, new caret.
+        val writesBefore = harness.writes
+        harness.holder.onInput(TextFieldValue("hello", TextRange(2)))
+
+        assertEquals(TextFieldValue("hello", TextRange(2)), harness.holder.value)
+        assertEquals(1, harness.writes - writesBefore)
+        // No phantom step: one Undo still reverts the typing, not the caret.
+        harness.holder.undo()
+        assertEquals("", harness.holder.value.text)
+    }
+
+    @Test
+    fun `the field's selection sync after a paste parks no phantom undo step`() {
+        val harness = Harness()
+        harness.seed("hello", caret = 5)
+        harness.holder.pasteAtCaret(" world")
+        assertEquals("hello world", harness.holder.value.text)
+
+        // The bound field reports the paste's new caret back as a value change with the same text:
+        // this must not open a step of its own.
+        harness.holder.onInput(TextFieldValue("hello world", TextRange(11)))
+
+        harness.holder.undo()
+        // Undo removes the pasted text — the bug was that it restored the same text and looked dead.
+        assertEquals("hello", harness.holder.value.text)
+        assertEquals(TextRange(5), harness.holder.value.selection)
+    }
+
+    @Test
+    fun `paste offsets are UTF-16 code units, exactly like TextRange`() {
+        val harness = Harness()
+        harness.seed("ab", caret = 1)
+
+        // A surrogate pair occupies two UTF-16 units, so the caret lands two offsets further on —
+        // the identity mapping between Kotlin String indices and Compose TextRange.
+        harness.holder.pasteAtCaret("\uD83D\uDE42")
+
+        assertEquals("a\uD83D\uDE42b", harness.holder.value.text)
+        assertEquals(4, harness.holder.value.text.length)
+        assertEquals(TextRange(3), harness.holder.value.selection)
     }
 
     // ── FR-29, EC-22 ─────────────────────────────────────────────────────────

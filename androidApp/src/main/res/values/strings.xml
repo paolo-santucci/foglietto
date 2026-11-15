@@ -2,9 +2,10 @@
 <!--
     Foglietto — default (English) copy, OQ-21 pinned inventory (FR-36, NFR-06).
 
-    Exactly 17 keys, mirrored 1:1 by values-it/strings.xml and pinned by StringInventoryTest.
-    The two Android-only keys are `redo` and `editor_cleared`; the remaining 15 are the
-    Localizable.xcstrings keys that survived the copy/paste/hide-keyboard drop.
+    Exactly 19 keys, mirrored 1:1 by values-it/strings.xml and pinned by StringInventoryTest.
+    The two Android-only keys are `redo` and `editor_cleared`; the remaining 17 are the
+    Localizable.xcstrings keys, including `copy` and `paste` — the bottom bar's Copy/Paste
+    controls need labels on Android, where iOS relies on the toolbar's own accessibility labels.
 
     `restore_note_label` is the recovery-row accessibility label: %1$s = note preview,
     %2$s = saved-at subtitle. No `app_name` key here: the manifest does not reference one.
@@ -19,6 +20,8 @@
     <string name="outdent">Outdent</string>
     <string name="menu">Menu</string>
     <string name="open_menu">Open menu</string>
+    <string name="copy">Copy</string>
+    <string name="paste">Paste</string>
     <string name="recent_notes">Recent notes</string>
     <string name="no_recent_notes">No recent notes.</string>
     <string name="restore_note_label">Restore note: %1$s, saved %2$s</string>

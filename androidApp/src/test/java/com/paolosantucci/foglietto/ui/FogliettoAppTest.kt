@@ -13,13 +13,15 @@ import org.junit.Test
  * Tier A — the shell's contract (FR-20, FR-32, EC-03, EC-30).
  *
  * [FogliettoApp] itself is presentation (manual inspection, OQ-20); the decisions it makes —
- * what the Clear notification says, how a dead link degrades, and which actions each bar owns —
- * resolve through these seams, so they are pinned here without a Compose UI test.
+ * what the Clear notification says, how a dead link degrades, which actions each band owns, and
+ * what Copy/Paste hand over — resolve through these seams, so they are pinned here without a
+ * Compose UI test.
  *
- * The last test is a source scan: which actions each band owns is not observable from a plain JVM
- * and Compose UI tests are Tier C, which this module excludes (OQ-20) — so the shell's *delegation*
- * is pinned against its own source, the same idiom the m8 gate uses. The bands' internal order and
- * shapes are pinned by `TopActionBarChromeTest` and `ActionRowChromeTest`.
+ * The last tests are source scans: which actions each band owns and how a click re-reads its
+ * predicate are not observable from a plain JVM, and Compose UI tests are Tier C, which this module
+ * excludes (OQ-20) — so the shell's *delegation* is pinned against its own source, the same idiom
+ * the m8 gate uses. The bands' internal order and shapes are pinned by `TopActionBarChromeTest` and
+ * `ActionRowChromeTest`.
  */
 class FogliettoAppTest {
 
@@ -65,16 +67,52 @@ class FogliettoAppTest {
         val shell = appSources().single { it.contains("fun FogliettoApp(") }
 
         assertTrue(
-            "Undo, Redo, Share and the ⋮ are the top bar's band (FR-20).",
+            "Share is the top bar's band (FR-20).",
             shell.contains("TopActionBar("),
         )
         assertTrue(
-            "The shell delegates the whole bottom band to the floating pill.",
+            "The shell delegates the whole bottom band to the floating bar.",
             shell.contains("EditorActionRow("),
         )
         assertFalse(
             "The shell must not compose a button directly: the bands own their controls.",
             shell.contains("TonalActionButton(") || shell.contains("GlyphActionButton("),
+        )
+    }
+
+    @Test
+    fun `copy hands the whole buffer to the clipboard, never the selection`() {
+        val shell = appSources().single { it.contains("fun FogliettoShell(") }
+
+        assertTrue(
+            "Copy is the whole buffer, exactly as iOS copies `viewModel.text`.",
+            shell.contains("clipboard.setText(editor.value.text)"),
+        )
+        assertFalse(
+            "Copy must never be gated on, or narrowed to, the selection.",
+            shell.contains("selection"),
+        )
+    }
+
+    @Test
+    fun `paste resolves through the holder so the clipboard cannot write the buffer itself`() {
+        val shell = appSources().single { it.contains("fun FogliettoShell(") }
+
+        assertTrue(
+            "Paste reads the clipboard and hands it to the holder's paste path.",
+            shell.contains("clipboard.getText()?.let { text -> editor.pasteAtCaret(text) }"),
+        )
+    }
+
+    @Test
+    fun `the share click re-reads the shared predicate at click time`() {
+        val shell = appSources().single { it.contains("fun FogliettoShell(") }
+
+        // EC-30: the rendered flag is the bar's, but the re-read at click time is what gates what
+        // actually leaves the app.
+        assertTrue(
+            "The shell must re-read `editor.shareEnabled` before handing text to the share seam.",
+            shell.contains("if (editor.shareEnabled) onShare(editor.value.text)"),
         )
     }
 

@@ -58,7 +58,8 @@ internal val FogliettoLightColorScheme = lightColorScheme(
     surfaceVariant = SurfaceVariantLight,
     onSurfaceVariant = OnSurfaceVariantLight,
     outlineVariant = OutlineVariantLight,
-    // The ⋮ sheet's container, the raised band inside it, and the top bar's scrolled container.
+    // The ⋮ popover's card and the About sheet's container, the raised band inside them, and the
+    // top bar's scrolled container.
     surfaceContainerLow = SurfaceContainerLowLight,
     surfaceContainerHigh = SurfaceContainerHighLight,
     surfaceContainer = SurfaceVariantLight,

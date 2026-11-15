@@ -45,11 +45,13 @@ import com.paolosantucci.foglietto.ui.theme.FogliettoTheme
  * The chrome's two icon-only controls, both built on one enablement animation:
  *
  *  - [TonalActionButton] — a rounded-square tonal container. This is the top bar's control: Keep's
- *    Material 3 Expressive toolbar puts Undo / Redo / Share / ⋮ each in their own rounded square
+ *    Material 3 Expressive toolbar puts each action in its own rounded square
  *    (`RoundedCornerShape`, wider than tall) rather than in the circles the previous chrome drew.
- *  - [GlyphActionButton] — the glyph alone, no container: the floating bottom pill's controls,
- *    which Keep draws as bare outlined icons inside one shared pill surface.
- *
+ *    The top bar keeps Share alone now; the same container is what every remaining top-bar action
+ *    would use.
+ *  - [GlyphActionButton] — the glyph alone, no container: the floating bottom bar's controls (Copy,
+ *    Paste, Outdent, Indent, Clear, Undo, Redo, ⋮), which Keep draws as bare outlined icons inside
+ *    one shared pill surface. *
  * ## Styling
  *
  * The fill and the icon ink come from the scheme's `secondaryContainer`/`onSurface`, so the neutral
@@ -137,7 +139,7 @@ internal data class ChromeActionColors(
 )
 
 /**
- * The one place the chrome's action colours are computed, so the top bar and the bottom pill can
+ * The one place the chrome's action colours are computed, so the top bar and the bottom bar can
  * never drift apart: enabled is `onSurface` (Keep's near-black glyph), disabled is the same ink at
  * [DisabledContentAlpha] over a container of `secondaryContainer` at [DisabledContainerAlpha].
  */

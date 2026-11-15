@@ -4,17 +4,17 @@ import com.paolosantucci.foglietto.state.RecoveryRow
 import java.util.Locale
 
 /**
- * The pure seam behind [MenuSheet] (FR-26, FR-27, FR-28, NFR-04).
+ * The pure seam behind [MenuPopoverContent] (FR-26, FR-27, FR-28, NFR-04).
  *
- * The sheet itself is presentation-only; every decision it makes resolves here, so the contract
+ * The popover body is presentation-only; every decision it makes resolves here, so the contract
  * is pinned by a plain-JVM test instead of a Tier C instrumentation test (OQ-20):
  *
  *  - **Open = re-fetch, every time.** [open] invokes the injected refresh (the host wires
  *    `RecoveryListStateHolder::refresh`) on **every** call — constructing this model performs no
  *    fetch, so the list is never loaded at launch, and nothing is cached between opens (FR-26).
- *    A note saved while the app runs appears the next time the sheet opens.
+ *    A note saved while the app runs appears the next time the ⋮ menu opens.
  *  - **Close is inert.** [close] has no side effects: dismissal is the host's business and must
- *    not touch the editor buffer (the sheet is dismissible without selecting a row).
+ *    not touch the editor buffer (the menu is dismissible without selecting a row).
  *  - **Rows are forwarded verbatim.** [rows] returns the holder's list as-is — already newest-first
  *    and ≤10, with the shared ≤80-UTF-16 single-line preview and the shared
  *    `YYYY-MM-DD HH:MM` subtitle. No local truncation, no local date formatting (FR-27,

@@ -1,21 +1,23 @@
 package com.paolosantucci.foglietto.ui
 
 /**
- * The one sheet the shell has open, or `null` for none (FR-21, FR-34).
+ * The one modal overlay the shell can have open, or `null` for none (FR-21, FR-34).
  *
- * This file used to declare `OverflowItems` — the two-entry `DropdownMenu` the ⋮ rendered. The ⋮
- * is now a single bottom sheet (`MenuSheet`) whose first section *is* the recent-notes list, so
- * the only routing left is "which sheet is mounted", and it is this exhaustive enum. Nothing here
- * holds display copy: the labels live in `res/values/strings.xml` + `values-it/strings.xml`
- * (NFR-06), which `StringInventoryTest` pins.
+ * This file has now shed both of its earlier shapes. It used to declare `OverflowItems` — the
+ * two-entry `DropdownMenu` the ⋮ rendered — and then a two-value enum for "menu sheet vs About
+ * sheet". The ⋮ is no longer a sheet at all: it opens an anchored popover owned by the action bar
+ * ([com.paolosantucci.foglietto.ui.chrome.EditorActionRow]), so the only overlay left is the About
+ * sheet. What remains here is the overlay's *identity*, not a routing table: the shell mounts the
+ * body named by the enum while it is non-null, which keeps "which overlay is open" one explicit
+ * value instead of a pile of booleans.
+ *
+ * Nothing here holds display copy: the labels live in `res/values/strings.xml` +
+ * `values-it/strings.xml` (NFR-06), which `StringInventoryTest` pins.
  *
  * Tier A: no Compose, no `Context` — the contract is a plain enum, pinned by [ShellSheetTest].
  */
 enum class ShellSheet {
 
-    /** The ⋮ sheet: recent notes inline, then the About row (FR-26, FR-34). */
-    Menu,
-
-    /** The About sheet, reached from the menu's About row (FR-34). */
+    /** The About sheet, reached from the ⋮ popover's About row (FR-34). */
     About,
 }

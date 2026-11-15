@@ -36,7 +36,8 @@ import com.paolosantucci.foglietto.ui.theme.FogliettoTheme
  *
  * Traced to `.claude/docs/canon/ui-design-bible.md`:
  *  - §Components 3: full-bleed, borderless, soft-wrapping multiline text view; no search bar, no
- *    accessory bar, no Find affordance (FR-19, FR-23..FR-25) and no in-app Copy/Paste.
+ *    accessory bar, no Find affordance (FR-19, FR-23..FR-25) and no copy/paste chrome *in the
+ *    field* — the buffer's Copy/Paste are the bottom bar's, not a selection toolbar or accessory.
  *  - §Typography: `FontFamily.Default` (the platform/user font, never a bundled family) at the
  *    system font scale with line-height 1.4 — the multiple comes from [lineHeightFor], which is
  *    the only place the 1.4 is computed, so FR-17 is unit-pinned rather than restated here.

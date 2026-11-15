@@ -7,21 +7,22 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Tier A — the shell's sheet routing and the ⋮ menu's shape (FR-21, FR-26, FR-34, EC-03).
+ * Tier A — the shell's overlay routing and the ⋮ menu's shape (FR-21, FR-26, FR-34, EC-03).
  *
  * ## What changed
  *
- * This file used to pin `OverflowItems`: the two `DropdownMenu` entries ("Recent notes", "About")
- * and the sheet each one opened. That two-level shape is gone — it hid the recoverable notes behind
- * a submenu, which is the defect the Keep-style review reported. The ⋮ now opens **one**
- * `ModalBottomSheet` whose first section *is* the recent-notes list, with a single About row under
- * a hairline divider. So what is left to pin is:
+ * This file pinned `OverflowItems` (the two-entry `DropdownMenu`), then a `ModalBottomSheet` menu.
+ * Both are gone: the ⋮ is a Material 3 popover anchored to the bottom bar's own overflow button, so
+ * the notes are still visible on open (no second tap) but the overlay is a card, not a sheet. What
+ * is left to pin is:
  *
- *  - the shell routes to exactly two sheets, and the ⋮'s destination is [ShellSheet.Menu];
- *  - the menu sheet hosts the notes inline (no second tap) plus exactly one About row;
- *  - the sheet re-fetches once per open (the per-open refresh is also pinned at its pure seam by
- *    `RecoverySheetModelTest`);
- *  - no `DropdownMenu` and no hand-drawn glyph code survives anywhere in the app.
+ *  - the shell mounts exactly one modal overlay — the About sheet — and nothing else;
+ *  - the popover body carries the header, the inline notes, two hairlines and one About row, and no
+ *    `ModalBottomSheet` of its own;
+ *  - the notes list is height-capped and scrolls, so ten notes cannot make an unbounded card;
+ *  - the popover re-fetches once per open (also pinned at its pure seam by `RecoverySheetModelTest`);
+ *  - the About row hands over to the About sheet through the shell's routing, not its own;
+ *  - no hand-drawn glyph code survives anywhere in the app.
  *
  * The structural half is a source scan because Compose UI interaction tests are Tier C and
  * structurally excluded from this module (OQ-20) — the same idiom the m8 gate and
@@ -30,94 +31,127 @@ import org.junit.Test
 class ShellSheetTest {
 
     @Test
-    fun `the shell routes to exactly the menu and the About sheet`() {
+    fun `the shell routes to exactly one overlay - the About sheet`() {
         assertEquals(
-            listOf(ShellSheet.Menu, ShellSheet.About),
+            "The ⋮ menu is a popover now, so the About sheet is the only mounted overlay.",
+            listOf(ShellSheet.About),
             ShellSheet.entries.toList(),
         )
     }
 
     @Test
-    fun `the menu is the overflow's only destination`() {
+    fun `the About sheet is reached from inside the popover, not from a second menu level`() {
         val shell = appSources().single { it.contains("fun FogliettoApp(") }
+        val popover = appSources().single { it.contains("fun MenuPopoverContent(") }
 
         assertTrue(
-            "The ⋮ must open the menu sheet directly.",
-            shell.contains("onOpenMenu = { openSheet = ShellSheet.Menu }"),
+            "The popover body renders the About row.",
+            popover.contains("R.string.about"),
         )
+        assertTrue(
+            "The shell opens the About sheet when the popover's About row is tapped.",
+            shell.contains("openSheet = ShellSheet.About"),
+        )
+        assertTrue(
+            "The shell closes the popover first, so the sheet is not stacked over a menu.",
+            shell.contains("menuOpen = false"),
+        )
+    }
+
+    @Test
+    fun `the popover body shows the recent notes inline and one About row`() {
+        val popover = appSources().single { it.contains("fun MenuPopoverContent(") }
+
         assertFalse(
-            "The ⋮ must never jump straight to About — About lives inside the menu.",
-            shell.contains("onOpenMenu = { openSheet = ShellSheet.About }"),
+            "The menu is a popover card, never a sheet again.",
+            popover.contains("ModalBottomSheet("),
         )
-    }
-
-    @Test
-    fun `the About sheet is reached from inside the menu, not from a second menu level`() {
-        val shell = appSources().single { it.contains("fun FogliettoApp(") }
-        val menu = appSources().single { it.contains("fun MenuSheet(") }
-
-        assertTrue(
-            "The ⋮ menu hands over to the About sheet.",
-            shell.contains("onOpenAbout = { onOpenSheet(ShellSheet.About) }"),
-        )
-        assertTrue(
-            "The menu sheet must route the About row through its host.",
-            menu.contains("onOpenAbout"),
-        )
-    }
-
-    @Test
-    fun `the menu sheet shows the recent notes inline and one About row`() {
-        val menu = appSources().single { it.contains("fun MenuSheet(") }
-
-        assertTrue("the sheet is a ModalBottomSheet.", menu.contains("ModalBottomSheet("))
         assertTrue(
             "the header is the localized `recent_notes` copy.",
-            menu.contains("R.string.recent_notes"),
+            popover.contains("R.string.recent_notes"),
         )
         assertTrue(
-            "the notes are rendered by the shared recovery-list items — inline, no second tap.",
-            menu.contains("recentNoteItems("),
+            "the notes are rendered by the shared recovery-list rows — inline, no second tap.",
+            popover.contains("RecentNoteRows("),
         )
         assertEquals(
-            "exactly one divider separates the notes from the About row.",
-            1,
-            Regex("""HorizontalDivider\(""").findAll(menu).count(),
-        )
-        assertTrue(
-            "the About row is labelled by the localized `about` copy.",
-            menu.contains("R.string.about"),
+            "two hairlines: one under the header, one above the About row (Keep's card anatomy).",
+            2,
+            Regex("""HorizontalDivider\(""").findAll(popover).count(),
         )
         assertTrue(
             "the About row uses the outlined Info icon.",
-            menu.contains("Icons.Outlined.Info"),
+            popover.contains("Icons.Outlined.Info"),
         )
         assertTrue(
-            "the sheet's container is the palette's `surfaceContainerLow`.",
-            menu.contains("MaterialTheme.colorScheme.surfaceContainerLow"),
+            "the About row is a ≥56dp full-width target.",
+            popover.contains("heightIn(min = 56.dp)"),
+        )
+        assertFalse(
+            "no lazy list inside the popover: a DropdownMenu content column is measured for " +
+                "intrinsics, and a SubcomposeLayout child crashes the menu at measure time.",
+            popover.contains("LazyColumn(") || popover.contains("recentNoteItems("),
+        )
+        assertTrue(
+            "the note rows sit in a bounded, non-lazy scroll window so the card fits above the ⋮.",
+            popover.contains("heightIn(max = NotesMaxHeight)") &&
+                popover.contains("verticalScroll(") &&
+                popover.contains("NotesMaxHeight = 216.dp"),
         )
     }
 
     @Test
-    fun `the menu re-fetches the notes once per open`() {
-        val menu = appSources().single { it.contains("fun MenuSheet(") }
+    fun `the popover re-fetches the notes once per open`() {
+        val popover = appSources().single { it.contains("fun MenuPopoverContent(") }
 
         assertTrue(
-            "A constant-key LaunchedEffect inside the sheet is the per-open signal (FR-26): the " +
-                "host composes the sheet only while it is open.",
-            menu.contains("LaunchedEffect(Unit)"),
+            "A constant-key LaunchedEffect inside the body is the per-open signal (FR-26): the host " +
+                "composes the body only while the menu is open.",
+            popover.contains("LaunchedEffect(Unit)"),
         )
-        assertTrue("the effect drives the model's open().", menu.contains("model.open()"))
+        assertTrue("the effect drives the model's open().", popover.contains("model.open()"))
     }
 
     @Test
-    fun `no dropdown menu and no hand-drawn glyph survives`() {
+    fun `the ⋮ is the anchor and the shell owns the open state`() {
+        val shell = appSources().single { it.contains("fun FogliettoShell(") }
+        val row = appSources().single { it.contains("fun EditorActionRow(") }
+
+        assertTrue(
+            "The bar's ⋮ owns the anchor Box the popover measures against.",
+            row.contains("DropdownMenu("),
+        )
+        assertTrue(
+            "The shell owns the open flag and hands both callbacks down.",
+            shell.contains("menuOpen = menuOpen") &&
+                shell.contains("onOpenMenu = { menuOpen = true }") &&
+                shell.contains("onMenuDismiss = { menuOpen = false }"),
+        )
+        assertTrue(
+            "The shell hands the body to the bar as a slot.",
+            shell.contains("menuContent = {") && shell.contains("MenuPopoverContent("),
+        )
+    }
+
+    @Test
+    fun `the About sheet is the app's only modal sheet`() {
+        val sources = appSources()
+
+        assertEquals(
+            "Exactly one ModalBottomSheet survives — the About sheet.",
+            1,
+            sources.sumOf { code -> Regex("""ModalBottomSheet\(""").findAll(code).count() },
+        )
+    }
+
+    @Test
+    fun `the removed menu sheet leaves no trace`() {
         val sources = appSources()
 
         sources.forEach { code ->
             assertFalse(
-                "The ⋮ is a bottom sheet; a DropdownMenu is the two-level menu the review rejected.",
-                code.contains("DropdownMenu"),
+                "ShellSheet.Menu is gone: the ⋮ is no longer a sheet destination.",
+                code.contains("ShellSheet.Menu"),
             )
             assertFalse("No drawn glyph geometry may survive.", code.contains("Canvas("))
             assertFalse("The old shell glyph enum must be gone.", code.contains("ShellGlyph"))
@@ -125,7 +159,7 @@ class ShellSheetTest {
         }
     }
 
-    // ── Helpers ───────────────────────────────────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────────
 
     /** Production Kotlin sources, resolved from either the module dir or the repo root. */
     private fun appSources(): List<String> = mainSourceFiles().map { it.code() }

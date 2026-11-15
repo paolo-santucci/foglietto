@@ -10,16 +10,19 @@ import org.w3c.dom.Element
 /**
  * Tier A string-resource inventory — plain JVM XML parse, no Robolectric (FR-36, NFR-06, OQ-21).
  *
- * Pins the 17-key copy contract shared by the English default file and the Italian
+ * Pins the 19-key copy contract shared by the English default file and the Italian
  * `values-it` translation:
  *  - both locales expose the identical key set (a key missing from one locale is a
  *    user-visible regression on that locale);
- *  - the set is *exactly* the 17 keys enumerated in the plan (0 missing, 0 extra), so an
- *    accidentally re-added dropped key (copy/paste/hide-keyboard) or an `app_name` sneaking
- *    in is caught here rather than in review;
+ *  - the set is *exactly* the 19 keys enumerated in the plan (0 missing, 0 extra), so an
+ *    accidentally re-added dropped key (hide-keyboard, find) or an `app_name` sneaking in is
+ *    caught here rather than in review;
  *  - no value is empty or whitespace-only — an empty translation renders as a blank button;
  *  - `restore_note_label` keeps both positional placeholders in *both* locales, because the
  *    recovery row passes preview + saved-at subtitle through it.
+ *
+ * `copy` and `paste` are the bottom bar's two new accessible names (Copy/Paste), so the count is
+ * what changes when that bar gains or loses an icon-only control.
  *
  * The working directory of this test is the `androidApp/` module, but the repo root is also
  * accepted so the test survives a different Gradle invocation layout.
@@ -43,16 +46,16 @@ class StringInventoryTest {
     }
 
     @Test
-    fun `the key set is exactly the pinned 17`() {
+    fun `the key set is exactly the pinned 19`() {
         assertEquals(
-            "The default locale must declare exactly the pinned 17 keys; " +
+            "The default locale must declare exactly the pinned 19 keys; " +
                 "missing = ${PINNED_KEYS - defaultLocale.keys}, " +
                 "extra = ${defaultLocale.keys - PINNED_KEYS}",
             PINNED_KEYS,
             defaultLocale.keys,
         )
         assertEquals(
-            "The Italian locale must declare exactly the pinned 17 keys; " +
+            "The Italian locale must declare exactly the pinned 19 keys; " +
                 "missing = ${PINNED_KEYS - italianLocale.keys}, " +
                 "extra = ${italianLocale.keys - PINNED_KEYS}",
             PINNED_KEYS,
@@ -104,7 +107,7 @@ class StringInventoryTest {
     }
 
     private companion object {
-        /** OQ-21, pinned literally: 15 retained iOS keys + the two Android-only keys. */
+        /** OQ-21, pinned literally: 17 retained iOS keys + the two Android-only keys. */
         val PINNED_KEYS: Set<String> = setOf(
             "clear_editor",
             "about",
@@ -114,6 +117,8 @@ class StringInventoryTest {
             "outdent",
             "menu",
             "open_menu",
+            "copy",
+            "paste",
             "recent_notes",
             "no_recent_notes",
             "restore_note_label",

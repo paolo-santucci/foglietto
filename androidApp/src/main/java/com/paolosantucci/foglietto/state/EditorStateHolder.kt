@@ -10,6 +10,7 @@ import com.paolosantucci.foglietto.shared.editor.IndentResult
 import com.paolosantucci.foglietto.shared.editor.LineIndent
 import com.paolosantucci.foglietto.shared.editor.ListContinuation
 import com.paolosantucci.foglietto.shared.editor.canShare
+import com.paolosantucci.foglietto.shared.editor.normalizeLineEndings
 
 /**
  * The ephemeral editor's single source of truth: text plus selection as a Compose
@@ -25,7 +26,8 @@ import com.paolosantucci.foglietto.shared.editor.canShare
  * ## Input origin
  *
  * [onInput] is the **IME-origin** entry point only; every programmatic mutation ([indent],
- * [outdent], [populate], [undo], [redo]) writes [value] directly and therefore never re-enters it.
+ * [outdent], [pasteAtCaret], [populate], [undo], [redo]) writes [value] directly and therefore never
+ * re-enters it.
  *
  * ## Enter interception (FR-15)
  *
@@ -38,7 +40,7 @@ import com.paolosantucci.foglietto.shared.editor.canShare
  *
  * One snapshot per user action: a contiguous typing run records its pre-run state on the first
  * delta and re-records that *same* snapshot on subsequent deltas, which [EditorHistory] treats as
- * a no-op. A continuation, indent/outdent, populate, undo or redo closes the run.
+ * a no-op. A continuation, indent/outdent, paste, populate, undo or redo closes the run.
  *
  * ## Enablement
  *
@@ -122,6 +124,18 @@ class EditorStateHolder internal constructor(
         val oldValue = value
         if (newValue == oldValue) return
 
+        // A change that leaves the text identical is a caret move — including the selection sync a
+        // programmatic write (paste, indent, restore) provokes in the bound field. It mutates no
+        // content, so it must NOT open an undo step: recording one parks a snapshot whose text is
+        // the current text, and the next Undo then restores the same text and reads as a dead
+        // button (the paste-then-undo case). It does end the coalescing run, so typing after a
+        // deliberate caret move still records its own step.
+        if (newValue.text == oldValue.text) {
+            typingRunStart = null
+            write(newValue)
+            return
+        }
+
         val continuationResult = continuationCandidate(oldValue, newValue)
 
         if (continuationResult != null) {
@@ -162,6 +176,55 @@ class EditorStateHolder internal constructor(
         history.record(snapshotOf(current))
         typingRunStart = null
         write(TextFieldValue(result.text, TextRange(result.selStart, result.selExtent)))
+    }
+
+    // ── Clipboard origin ─────────────────────────────────────────────────────
+
+    /**
+     * Inserts clipboard text at the caret, replacing the current selection — the Android half of
+     * iOS's `pasteAtCaret()`.
+     *
+     * ## Rules, in order
+     *
+     *  - **Empty is a no-op.** Empty (or normalization-empty) text writes nothing: no state write,
+     *    no undo step, no history flag change (EC-03).
+     *  - **Line endings are normalized first** through the shared `normalizeLineEndings`, never a
+     *    local `replace("\r\n", "\n")`. The continuation and indent rules only understand `"\n"`,
+     *    so a pasted CRLF note would otherwise produce empty numbered items and outdent drift —
+     *    the same rule an inbound share applies, minus its blank rejection (pasting spaces pastes
+     *    spaces).
+     *  - **ONE undo step.** The pre-paste snapshot is recorded, the typing run is closed, then the
+     *    buffer is written in a single [TextFieldValue]: one Undo reverts the paste and nothing
+     *    else.
+     *  - **The caret lands after the pasted text.** Offsets are UTF-16 code units in both Compose
+     *    `TextRange` and Kotlin `String`, so the mapping is the identity — a surrogate pair counts
+     *    as the two units it occupies.
+     *  - **Never re-enters [onInput].** A pasted `"\n"` must not trigger list continuation: a paste
+     *    is a programmatic write, exactly like indent or a restore.
+     *
+     * The selection is clamped to the buffer: an IME can hand over a range that no longer matches
+     * the text it describes, and a paste must never be the thing that throws an index exception.
+     *
+     * @param raw the clipboard text, verbatim; `null` clipboard contents never reach this method.
+     */
+    fun pasteAtCaret(raw: String) {
+        val pasted = normalizeLineEndings(raw)
+        if (pasted.isEmpty()) return
+
+        val current = value
+        val text = current.text
+        val selStart = minOf(current.selection.start, current.selection.end).coerceIn(0, text.length)
+        val selEnd = maxOf(current.selection.start, current.selection.end).coerceIn(selStart, text.length)
+
+        val newText = buildString(text.length - (selEnd - selStart) + pasted.length) {
+            append(text, 0, selStart)
+            append(pasted)
+            append(text, selEnd, text.length)
+        }
+
+        history.record(snapshotOf(current))
+        typingRunStart = null
+        write(TextFieldValue(newText, TextRange(selStart + pasted.length)))
     }
 
     // ── Restore / clear origin ───────────────────────────────────────────────
