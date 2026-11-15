@@ -5,8 +5,8 @@ package com.paolosantucci.foglietto.ui
  *
  * This file has now shed both of its earlier shapes. It used to declare `OverflowItems` — the
  * two-entry `DropdownMenu` the ⋮ rendered — and then a two-value enum for "menu sheet vs About
- * sheet". The ⋮ is no longer a sheet at all: it opens an anchored popover owned by the action bar
- * ([com.paolosantucci.foglietto.ui.chrome.EditorActionRow]), so the only overlay left is the About
+ * sheet". The ⋮ is no longer a sheet at all: it opens an anchored popover owned by the top bar
+ * ([com.paolosantucci.foglietto.ui.chrome.TopActionBar]), so the only overlay left is the About
  * sheet. What remains here is the overlay's *identity*, not a routing table: the shell mounts the
  * body named by the enum while it is non-null, which keeps "which overlay is open" one explicit
  * value instead of a pile of booleans.

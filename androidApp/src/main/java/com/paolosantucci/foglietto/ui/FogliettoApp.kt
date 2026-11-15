@@ -27,6 +27,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.UriHandler
 import androidx.compose.ui.res.stringResource
@@ -59,11 +60,11 @@ import kotlinx.coroutines.launch
  * app bar:
  *
  * ```
- *                                                          (Share)   ← title-less top bar
+ *                                           (↶)(↷)(Share)(⋮)   ← title-less top bar, rounded tiles
  *   editor (full-bleed, the screen)
- *   ╭──────────────────────────────────────────────────────────────╮
- *   │ (Copy)(Paste)(Outdent)(Indent)(Clear)      (Undo)(Redo)(⋮)     │   ← one floating bar
- *   ╰──────────────────────────────────────────────────────────────╯
+ *   ╭────────────────────────────────────────────────────╮
+ *   │        (Copy)(Paste)(Outdent)(Indent)(Clear)        │   ← one floating pill, centred
+ *   ╰────────────────────────────────────────────────────╯
  * ```
  *
  * Traced to `.claude/docs/canon/ui-design-bible.md`:
@@ -85,11 +86,11 @@ import kotlinx.coroutines.launch
  * FR-32 pins a Snackbar (canon §Components 8 places its toast top-centre). Both are spec
  * decisions, flagged for the canon owner rather than invented here.
  *
- * CANON GAP: the canon publishes no bottom action row. The floating bar (one `Surface`, two
- * clusters) follows the current Google Keep reference the product owner supplied — its Material 3
+ * CANON GAP: the canon publishes no bottom action row. The floating pill (one `Surface`, five
+ * glyphs) follows the current Google Keep reference the product owner supplied — its Material 3
  * Expressive toolbar — and is pinned by `ActionRowChromeTest` rather than derived from a canon
- * table. The rounded-square top-bar container and the ⋮ popover's card are the same reference's
- * shapes, one deliberate departure from the canon's circular chrome.
+ * table. The rounded-square top-bar tiles and the ⋮ popover's card are the same reference's shapes,
+ * one deliberate departure from the canon's circular chrome.
  */
 
 /**
@@ -223,7 +224,7 @@ fun FogliettoApp(container: AppContainer, modifier: Modifier = Modifier) {
  *
  * Edge-to-edge is kept (`MainActivity.enableEdgeToEdge`). Each band owns exactly one inset, once:
  *  - the status bar is the `TopAppBar`'s (`TopAppBarDefaults.windowInsets`);
- *  - the bottom is the **floating** bar's (`imePadding()` + `navigationBarsPadding()`, in
+ *  - the bottom is the **floating** pill's (`imePadding()` + `navigationBarsPadding()`, in
  *    [EditorActionRow]), which is why it is hosted as `bottomBar` and not stacked in the content
  *    column: `Scaffold` then offsets the `SnackbarHost` above it, so the "Editor cleared" toast can
  *    never paint over the buttons the user just tapped;
@@ -250,25 +251,25 @@ internal fun FogliettoShell(
 ) {
     var openSheet by remember { mutableStateOf<ShellSheet?>(null) }
     var menuOpen by remember { mutableStateOf(false) }
+    // Opening the menu dismisses the IME. The popover is anchored to the top bar, and with the
+    // keyboard up the popup's usable frame shrinks enough that the card flips above its own anchor
+    // and covers the tiles; with the IME gone the card opens under them at every window size.
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopBar(editor = editor, onShare = onShare)
-        },
-        bottomBar = {
-            ActionDock(
+            TopBar(
                 editor = editor,
-                clipboard = clipboard,
-                onClear = onClear,
-                // The bar owns its bottom/IME edge; the horizontal safe-drawing inset is the
-                // shell's to hand it, once (a landscape cutout would clip the bar).
-                modifier = Modifier.windowInsetsPadding(
-                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
-                ),
+                onShare = onShare,
                 menuOpen = menuOpen,
-                onOpenMenu = { menuOpen = true },
+                onOpenMenu = {
+                    keyboardController?.hide()
+                    menuOpen = true
+                },
                 onMenuDismiss = { menuOpen = false },
+                // Composed only while the menu is open: entering the composition *is* opening the
+                // menu, which is what makes the popover's per-open refresh a true per-open signal.
                 menuContent = {
                     menuContent(
                         { menuOpen = false },
@@ -278,6 +279,18 @@ internal fun FogliettoShell(
                         },
                     )
                 },
+            )
+        },
+        bottomBar = {
+            ActionDock(
+                editor = editor,
+                clipboard = clipboard,
+                onClear = onClear,
+                // The pill owns its bottom/IME edge; the horizontal safe-drawing inset is the
+                // shell's to hand it, once (a landscape cutout would clip the band).
+                modifier = Modifier.windowInsetsPadding(
+                    WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
+                ),
             )
         },
         snackbarHost = {
@@ -296,79 +309,80 @@ internal fun FogliettoShell(
         )
     }
 
-    // Overlays are composed only while open (FR-26); the popover is the bar's, the sheet is here.
+    // Overlays are composed only while open (FR-26); the popover belongs to the top bar, the sheet
+    // to the shell.
     openSheet?.let { sheet ->
         sheetContent(sheet, { openSheet = null })
     }
 }
 
 /**
- * The floating bottom bar, reading every enablement flag **itself** (S1): scaffolded as `bottomBar`,
- * this subcomposition — not the editor and not the shell — is the one invalidated when a keystroke
- * flips Clear, or a history change flips Undo/Redo.
+ * The floating bottom pill, reading every enablement flag **itself** (S1): scaffolded as
+ * `bottomBar`, this subcomposition — not the editor and not the shell — is the one invalidated when
+ * a keystroke flips Clear.
  *
  * Copy and Paste resolve here rather than in the bar, so `EditorActionRow` stays a rendering layer
  * and knows nothing about `android.content`. Copy hands over the **whole buffer** (never the
  * selection) exactly as iOS does; Paste asks for the clipboard text and lets
  * `EditorStateHolder.pasteAtCaret` decide — an empty clipboard is its no-op (EC-03).
+ *
+ * Undo, Redo and the ⋮ are not this band's: they are the top bar's tiles, wired in [TopBar].
  */
 @Composable
 private fun ActionDock(
     editor: EditorStateHolder,
     clipboard: ClipboardGateway,
     onClear: () -> Unit,
-    menuOpen: Boolean,
-    onOpenMenu: () -> Unit,
-    onMenuDismiss: () -> Unit,
     modifier: Modifier = Modifier,
-    menuContent: @Composable ColumnScope.() -> Unit = {},
 ) {
     EditorActionRow(
         canClear = editor.canClear,
-        canUndo = editor.canUndo,
-        canRedo = editor.canRedo,
         onCopy = { clipboard.setText(editor.value.text) },
         onPaste = { clipboard.getText()?.let { text -> editor.pasteAtCaret(text) } },
         onOutdent = { editor.outdent() },
         onIndent = { editor.indent() },
         onClear = onClear,
-        onUndo = { editor.undo() },
-        onRedo = { editor.redo() },
-        menuOpen = menuOpen,
-        onOpenMenu = onOpenMenu,
-        onMenuDismiss = onMenuDismiss,
         modifier = modifier,
-        menuContent = menuContent,
     )
 }
 
 /**
- * The top bar: Share alone, right-aligned in the same rounded-square tonal container the chrome
- * uses — the title-less bar leaves the editor as the screen's content (FR-20).
+ * The top bar: Undo, Redo, Share and the ⋮ as four right-aligned rounded-square tiles — the
+ * title-less bar leaves the editor as the screen's content (FR-20).
  *
- * Undo, Redo and the ⋮ used to sit here; they now live in the bottom bar, which is where the
- * current reference puts the whole editing surface (see [EditorActionRow]).
- *
- * Enablement is read **here** so a keystroke recomposes the bar and not the editor (FR-20); the
- * actual band is [TopActionBar].
+ * Enablement is read **here** so a keystroke or a history change recomposes the bar and not the
+ * editor (FR-20); the actual band is [TopActionBar]. The ⋮ carries the menu's open state and body,
+ * both owned by the shell.
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(
     editor: EditorStateHolder,
     onShare: (String) -> Unit,
+    menuOpen: Boolean,
+    onOpenMenu: () -> Unit,
+    onMenuDismiss: () -> Unit,
+    menuContent: @Composable ColumnScope.() -> Unit = {},
 ) {
     TopAppBar(
         // Title-less by contract: the editor is the screen's content, the bar is chrome (FR-20).
         title = {},
         actions = {
             TopActionBar(
+                canUndo = editor.canUndo,
+                canRedo = editor.canRedo,
                 canShare = editor.shareEnabled,
+                onUndo = { editor.undo() },
+                onRedo = { editor.redo() },
                 onShare = {
                     // S9: re-read the predicate at click time — the rendering flag above is the
                     // bar's, the shared rule is the gate on what actually leaves the app (EC-30).
                     if (editor.shareEnabled) onShare(editor.value.text)
                 },
+                menuOpen = menuOpen,
+                onOpenMenu = onOpenMenu,
+                onMenuDismiss = onMenuDismiss,
+                menuContent = menuContent,
             )
         },
     )

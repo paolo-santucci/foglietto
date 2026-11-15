@@ -33,8 +33,8 @@ import com.paolosantucci.foglietto.ui.theme.FogliettoTheme
 /*
  * The ⋮ menu's body — the ONE menu (FR-21, FR-26..FR-30, FR-34).
  *
- * The menu is no longer a sheet: the ⋮ in the bottom bar anchors a Material 3 popover (the
- * `DropdownMenu` inside `EditorActionRow`) and this file supplies the card's content, in Google
+ * The menu is no longer a sheet: the ⋮ tile in the top bar anchors a Material 3 popover (the
+ * `DropdownMenu` inside `TopActionBar`) and this file supplies the card's content, in Google
  * Keep's overflow-card anatomy: a header line, a hairline, the recent-note rows, a hairline, then an
  * icon + label row. That is why the old two-level shape is gone as well — the notes are visible on
  * open, not behind a second tap.
@@ -72,12 +72,13 @@ import com.paolosantucci.foglietto.ui.theme.FogliettoTheme
  *
  * ## Height
  *
- * The rows are emitted eagerly into a fixed-height scroll window ([NotesMaxHeight], three rows).
- * Two constraints meet here: the card must stay short enough to open *above* the bottom bar (the
- * ⋮ it anchors to sits at the bottom edge, so a taller card is clipped), and it must not contain a
- * lazy list — a Material 3 `DropdownMenu` content column is queried for intrinsic measurements and
- * a `SubcomposeLayout` child throws at measure time. Eager rows plus a plain scroll column satisfy
- * both; ten notes is the whole store, so eager rendering costs nothing.
+ * The rows are emitted eagerly into a fixed-height scroll window ([NotesMaxHeight], two rows).
+ * Two constraints meet here: the card must stay a compact popover rather than a full-height menu
+ * (the ⋮ it anchors to sits in the top bar, so the card opens downward over the editor and a taller
+ * one would run into the bottom pill), and it must not contain a lazy list — a Material 3
+ * `DropdownMenu` content column is queried for intrinsic measurements and a `SubcomposeLayout` child
+ * throws at measure time. Eager rows plus a plain scroll column satisfy both; ten notes is the whole
+ * store, so eager rendering costs nothing.
  *
  * ## Restore and About
  *
@@ -166,10 +167,10 @@ private fun MenuActionRow(
 }
 
 /**
- * The tallest the note list may get inside the card: three 72dp rows. Kept below the free space
- * above the ⋮ so the whole card (header, list, About) opens upward without clipping.
+ * The tallest the note list may get inside the card: two 72dp rows. Kept well inside the free
+ * space below the ⋮ tile so the whole card (header, list, About) opens without clipping.
  */
-private val NotesMaxHeight = 216.dp
+private val NotesMaxHeight = 144.dp
 
 // ── Previews (TASK-25, I6) ───────────────────────────────────────────────────
 // `ui-tooling-preview` is already on the classpath; rendering these in Android Studio needs

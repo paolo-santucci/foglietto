@@ -1,6 +1,7 @@
 package com.paolosantucci.foglietto.ui.chrome
 
 import java.io.File
+import java.lang.reflect.Modifier
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -11,9 +12,10 @@ import org.junit.Test
  *
  * ## Shape
  *
- * The bar is **one pill of eight controls in two clusters**: Copy, Paste, Outdent, Indent, Clear on
- * the left; Undo, Redo and the ⋮ on the right — Undo/Redo/⋮ arrived here when the top bar was
- * reduced to Share ([TopActionBar], pinned by `TopActionBarChromeTest`). All eight are always
+ * The bar is **one pill of five editing controls**: Copy, Paste, Outdent, Indent, Clear, centred.
+ * Undo, Redo and the ⋮ are the top bar's rounded-square tiles ([TopActionBar], pinned by
+ * `TopActionBarChromeTest`) — that split is the product owner's layout, so this file pins that the
+ * history/menu controls are *absent* here and that nothing has crept back in. All five are always
  * visible: the product owner asked for no IME-conditional reveal, so the reveal rule is not part of
  * this contract and must not be re-introduced.
  *
@@ -28,48 +30,43 @@ import org.junit.Test
  * and the band's opacity is constant, so there is no chrome value left to assert.
  *
  * What remains is the part that can actually regress: which controls accept input, how that
- * enablement animates under reduced motion, the EC-27 inset rule, the eight-control order, the ⋮
- * popover's anchoring and styling — and the pill's single-`Surface` shape. The structural half is a
- * source scan because a Compose UI test is Tier C and structurally excluded from this module
- * (OQ-20), the same idiom the m8 gate uses for `imePadding()`.
+ * enablement animates under reduced motion, the EC-27 inset rule, the five-control order and
+ * centring, the absence of the menu/history controls — and the pill's single-`Surface` shape. The
+ * structural half is a source scan because a Compose UI test is Tier C and structurally excluded
+ * from this module (OQ-20), the same idiom the m8 gate uses for `imePadding()`.
  */
 class ActionRowChromeTest {
 
     @Test
-    fun `every bar control maps to its own holder flag`() {
-        val empty = actionRowEnabled(canClear = false, canUndo = false, canRedo = false)
+    fun `every bar control maps to a holder flag and nothing else`() {
+        val empty = actionRowEnabled(canClear = false)
         assertTrue("outdent is always available.", empty.outdent)
         assertTrue("indent is always available.", empty.indent)
         assertFalse("an empty buffer cannot be cleared.", empty.clear)
-        assertFalse("an empty history cannot be undone.", empty.undo)
-        assertFalse("an empty history cannot be redone.", empty.redo)
 
-        val populated = actionRowEnabled(canClear = true, canUndo = true, canRedo = true)
+        val populated = actionRowEnabled(canClear = true)
         assertTrue(populated.clear)
-        assertTrue(populated.undo)
-        assertTrue(populated.redo)
+
+        // No orphan flag: the history and menu flags used to live here. Undo/Redo are the top bar's
+        // and the ⋮ is chrome, so a reappearing field is dead state the bar would then have to feed.
+        assertEquals(
+            "The bar's enablement contract is exactly its five controls.",
+            setOf("copy", "paste", "outdent", "indent", "clear"),
+            ActionRowEnabled::class.java.declaredFields
+                // The Compose compiler adds a static `$stable` field; only instance state counts.
+                .filterNot { Modifier.isStatic(it.modifiers) }
+                .map { it.name }
+                .toSet(),
+        )
     }
 
     @Test
-    fun `undo and redo follow their own stacks independently`() {
-        // The classic regression: one flag drives both, so Undo lights up Redo.
-        val undoOnly = actionRowEnabled(canClear = true, canUndo = true, canRedo = false)
-        assertTrue(undoOnly.undo)
-        assertFalse(undoOnly.redo)
-
-        val redoOnly = actionRowEnabled(canClear = true, canUndo = false, canRedo = true)
-        assertFalse(redoOnly.undo)
-        assertTrue(redoOnly.redo)
-    }
-
-    @Test
-    fun `copy and paste are never gated and the menu never depends on the buffer`() {
+    fun `copy and paste are never gated on the buffer or the clipboard`() {
         // EC-03 / iOS parity: copy works on an empty buffer (the share surface is what is gated) and
         // paste is enabled unconditionally — an empty clipboard is a silent no-op at the holder.
-        val empty = actionRowEnabled(canClear = false, canUndo = false, canRedo = false)
+        val empty = actionRowEnabled(canClear = false)
         assertTrue("Copy is never gated on the buffer.", empty.copy)
         assertTrue("Paste is never gated on the clipboard.", empty.paste)
-        assertTrue("The ⋮ is chrome, not a buffer action.", empty.menu)
     }
 
     @Test
@@ -104,7 +101,7 @@ class ActionRowChromeTest {
     }
 
     @Test
-    fun `the bar orders copy, paste, outdent, indent, clear then undo, redo and the menu`() {
+    fun `the bar orders copy, paste, outdent, indent, clear and nothing else`() {
         val code = rowSource()
 
         val positions = listOf(
@@ -113,9 +110,6 @@ class ActionRowChromeTest {
             "R.string.outdent",
             "R.string.indent",
             "R.string.clear_editor",
-            "R.string.undo",
-            "R.string.redo",
-            "R.string.open_menu",
         ).map { label ->
             val index = code.indexOf(label)
             assertTrue("the bar renders `$label`.", index >= 0)
@@ -123,39 +117,47 @@ class ActionRowChromeTest {
         }
 
         assertEquals(
-            "The bar must render its eight controls left to right: Copy, Paste, Outdent, Indent, " +
-                "Clear, Undo, Redo, Menu (the iOS order, with Undo/Redo/⋮ moved here from the top bar).",
+            "The bar must render its five controls left to right: Copy, Paste, Outdent, Indent, " +
+                "Clear.",
             positions.sorted(),
             positions,
         )
 
-        assertFalse(
-            "Share belongs to the top bar, never to this one.",
-            code.contains("R.string.share"),
-        )
+        listOf(
+            "R.string.undo",
+            "R.string.redo",
+            "R.string.share",
+            "R.string.open_menu",
+        ).forEach { label ->
+            assertFalse(
+                "`$label` is the top bar's tile now, never this bar's (product-owner layout).",
+                code.contains(label),
+            )
+        }
     }
 
     @Test
-    fun `the two clusters are separated by the slack, not by a second row`() {
+    fun `the five controls are centred in one row with no slack spacer`() {
         val code = rowSource()
 
+        assertEquals(
+            "Five controls, five glyph buttons, no hand-rolled variant.",
+            5,
+            Regex("""GlyphActionButton\(""").findAll(code).count(),
+        )
         assertTrue(
-            "One weight spacer takes the slack between the editing and history clusters.",
-            code.contains("Modifier.weight(1f)"),
+            "The five targets are centred in the pill — there is no second cluster to distribute " +
+                "slack between.",
+            code.contains("horizontalArrangement = Arrangement.Center"),
         )
         assertEquals(
-            "The bar is one row inside the pill: exactly one spaced arrangement.",
+            "Exactly one arrangement: the bar is one Row inside the pill.",
             1,
-            Regex("""horizontalArrangement\s*=\s*Arrangement\.spacedBy\(""").findAll(code).count(),
+            Regex("""horizontalArrangement\s*=""").findAll(code).count(),
         )
-        assertTrue(
-            "The 48dp targets sit directly next to each other — ButtonSpacing is 0.",
-            code.contains("ButtonSpacing = 0.dp"),
-        )
-        assertEquals(
-            "Eight controls, eight glyph buttons, no hand-rolled variant.",
-            8,
-            Regex("""GlyphActionButton\(""").findAll(rowSource()).count(),
+        assertFalse(
+            "No weight spacer: nothing has to be pushed to an edge any more.",
+            code.contains("Modifier.weight("),
         )
     }
 
@@ -181,43 +183,34 @@ class ActionRowChromeTest {
             code.contains("MaterialTheme.colorScheme.surfaceContainerLow"),
         )
         assertTrue(
-            "The pill spans the band, which is what lets the weight spacer distribute the slack.",
+            "The pill spans the band and the five targets are centred inside it.",
             code.contains("fillMaxWidth()"),
+        )
+        assertTrue(
+            "Keep's chrome sits 8dp clear of the window edge.",
+            code.contains("BandHorizontalPadding = 8.dp"),
         )
     }
 
     @Test
-    fun `the menu button anchors the Material 3 popover card`() {
+    fun `the bar carries no menu and no history control`() {
         val code = rowSource()
 
-        assertTrue(
-            "The ⋮ is the menu's anchor: Material 3's DropdownMenu handles outside-tap and back.",
-            code.contains("DropdownMenu("),
-        )
-        assertTrue("the menu's open state is the host's.", code.contains("expanded = menuOpen"))
-        assertTrue("the menu's dismissal is the host's.", code.contains("onDismissRequest = onMenuDismiss"))
-        assertTrue(
-            "the card is Keep's rounded overflow card: 28dp corners.",
-            code.contains("shape = PopoverShape") && code.contains("RoundedCornerShape(28.dp)"),
-        )
-        assertTrue(
-            "the card is the raised sheet tone, flat, with one shadow step.",
-            code.contains("containerColor = MaterialTheme.colorScheme.surfaceContainerLow") &&
-                code.contains("tonalElevation = 0.dp") &&
-                code.contains("shadowElevation = PopoverElevation"),
-        )
-        assertTrue(
-            "the card is capped at 320dp, never wider than the window.",
-            code.contains("widthIn(max = PopoverWidth)") && code.contains("PopoverWidth = 320.dp"),
-        )
-        assertTrue(
-            "8dp between the ⋮ glyph and the card.",
-            code.contains("DpOffset(x = 0.dp, y = PopoverGap)") && code.contains("PopoverGap = 8.dp"),
-        )
-        assertTrue(
-            "the menu body is the host's slot, composed only while the menu is open.",
-            code.contains("menuContent: @Composable ColumnScope.() -> Unit"),
-        )
+        listOf(
+            "DropdownMenu(",
+            "menuOpen",
+            "onOpenMenu",
+            "onMenuDismiss",
+            "menuContent",
+            "Icons.Filled.MoreVert",
+            "ColumnScope",
+            "DpOffset",
+        ).forEach { token ->
+            assertFalse(
+                "`$token` moved to the top bar with the ⋮: the pill owns no popover anchor.",
+                code.contains(token),
+            )
+        }
     }
 
     @Test
@@ -230,9 +223,6 @@ class ActionRowChromeTest {
             "Icons.AutoMirrored.Filled.FormatIndentDecrease",
             "Icons.AutoMirrored.Filled.FormatIndentIncrease",
             "Icons.Filled.Close",
-            "Icons.AutoMirrored.Filled.Undo",
-            "Icons.AutoMirrored.Filled.Redo",
-            "Icons.Filled.MoreVert",
         ).forEach { icon -> assertTrue("the bar renders `$icon`.", code.contains(icon)) }
 
         assertFalse("No Canvas glyph geometry may survive in the bar.", code.contains("Canvas("))

@@ -17,11 +17,11 @@ import org.junit.Test
  * what Copy/Paste hand over — resolve through these seams, so they are pinned here without a
  * Compose UI test.
  *
- * The last tests are source scans: which actions each band owns and how a click re-reads its
- * predicate are not observable from a plain JVM, and Compose UI tests are Tier C, which this module
- * excludes (OQ-20) — so the shell's *delegation* is pinned against its own source, the same idiom
- * the m8 gate uses. The bands' internal order and shapes are pinned by `TopActionBarChromeTest` and
- * `ActionRowChromeTest`.
+ * The last tests are source scans: which actions each band owns, which enablement flag each band
+ * reads, and how a click re-reads its predicate are not observable from a plain JVM, and Compose UI
+ * tests are Tier C, which this module excludes (OQ-20) — so the shell's *delegation* is pinned
+ * against its own source, the same idiom the m8 gate uses. The bands' internal order and shapes are
+ * pinned by `TopActionBarChromeTest` and `ActionRowChromeTest`.
  */
 class FogliettoAppTest {
 
@@ -67,16 +67,51 @@ class FogliettoAppTest {
         val shell = appSources().single { it.contains("fun FogliettoApp(") }
 
         assertTrue(
-            "Share is the top bar's band (FR-20).",
+            "The four chrome tiles are the top bar's band (FR-20).",
             shell.contains("TopActionBar("),
         )
         assertTrue(
-            "The shell delegates the whole bottom band to the floating bar.",
+            "The shell delegates the whole bottom band to the floating pill.",
             shell.contains("EditorActionRow("),
         )
         assertFalse(
             "The shell must not compose a button directly: the bands own their controls.",
             shell.contains("TonalActionButton(") || shell.contains("GlyphActionButton("),
+        )
+    }
+
+    @Test
+    fun `each band reads its own enablement flags from the holder`() {
+        val shell = appSources().single { it.contains("fun FogliettoShell(") }
+
+        // Undo and Redo follow their own stacks: one shared flag would light both tiles at once.
+        assertTrue(
+            "Undo's tile reads `editor.canUndo`.",
+            shell.contains("canUndo = editor.canUndo"),
+        )
+        assertTrue(
+            "Redo's tile reads `editor.canRedo`.",
+            shell.contains("canRedo = editor.canRedo"),
+        )
+        assertTrue(
+            "Share's tile reads the shared predicate.",
+            shell.contains("canShare = editor.shareEnabled"),
+        )
+        assertTrue(
+            "Clear — the only gated pill control — reads `editor.canClear`.",
+            shell.contains("canClear = editor.canClear"),
+        )
+        // The two bands are wired from one place each: the tiled band here, the pill in ActionDock.
+        val dock = shell.substringAfter("private fun ActionDock(")
+            .substringBefore("private fun TopBar(")
+        assertTrue(dock.contains("canClear = editor.canClear"))
+        assertFalse(
+            "The history flags are the top bar's: the pill renders no Undo/Redo.",
+            dock.contains("canUndo") || dock.contains("canRedo"),
+        )
+        assertFalse(
+            "The menu is the top bar's: the pill is handed no ⋮ plumbing.",
+            dock.contains("menuOpen") || dock.contains("menuContent"),
         )
     }
 

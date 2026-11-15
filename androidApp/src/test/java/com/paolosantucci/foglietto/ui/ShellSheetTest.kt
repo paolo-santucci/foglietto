@@ -12,9 +12,9 @@ import org.junit.Test
  * ## What changed
  *
  * This file pinned `OverflowItems` (the two-entry `DropdownMenu`), then a `ModalBottomSheet` menu.
- * Both are gone: the ⋮ is a Material 3 popover anchored to the bottom bar's own overflow button, so
- * the notes are still visible on open (no second tap) but the overlay is a card, not a sheet. What
- * is left to pin is:
+ * Both are gone: the ⋮ is a Material 3 popover anchored to the **top bar's** overflow tile, so the
+ * notes are still visible on open (no second tap) but the overlay is a card, not a sheet. What is
+ * left to pin is:
  *
  *  - the shell mounts exactly one modal overlay — the About sheet — and nothing else;
  *  - the popover body carries the header, the inline notes, two hairlines and one About row, and no
@@ -22,6 +22,7 @@ import org.junit.Test
  *  - the notes list is height-capped and scrolls, so ten notes cannot make an unbounded card;
  *  - the popover re-fetches once per open (also pinned at its pure seam by `RecoverySheetModelTest`);
  *  - the About row hands over to the About sheet through the shell's routing, not its own;
+ *  - the anchor lives in the top bar, and the bottom pill carries no menu plumbing at all;
  *  - no hand-drawn glyph code survives anywhere in the app.
  *
  * The structural half is a source scan because Compose UI interaction tests are Tier C and
@@ -96,7 +97,7 @@ class ShellSheetTest {
             "the note rows sit in a bounded, non-lazy scroll window so the card fits above the ⋮.",
             popover.contains("heightIn(max = NotesMaxHeight)") &&
                 popover.contains("verticalScroll(") &&
-                popover.contains("NotesMaxHeight = 216.dp"),
+                popover.contains("NotesMaxHeight = 144.dp"),
         )
     }
 
@@ -113,24 +114,37 @@ class ShellSheetTest {
     }
 
     @Test
-    fun `the ⋮ is the anchor and the shell owns the open state`() {
+    fun `the ⋮ is the top bar's anchor, the pill carries no menu, and the shell owns the open state`() {
         val shell = appSources().single { it.contains("fun FogliettoShell(") }
+        val bar = appSources().single { it.contains("fun TopActionBar(") }
         val row = appSources().single { it.contains("fun EditorActionRow(") }
 
         assertTrue(
-            "The bar's ⋮ owns the anchor Box the popover measures against.",
-            row.contains("DropdownMenu("),
+            "The top bar's ⋮ owns the anchor Box the popover measures against.",
+            bar.contains("DropdownMenu("),
         )
         assertTrue(
-            "The shell owns the open flag and hands both callbacks down.",
+            "The shell owns the open flag and hands both callbacks to the top bar.",
             shell.contains("menuOpen = menuOpen") &&
-                shell.contains("onOpenMenu = { menuOpen = true }") &&
+                shell.contains("onOpenMenu = {") &&
+                shell.contains("menuOpen = true") &&
                 shell.contains("onMenuDismiss = { menuOpen = false }"),
         )
         assertTrue(
-            "The shell hands the body to the bar as a slot.",
+            "Opening the menu dismisses the IME: with the keyboard up the popup frame shrinks and " +
+                "the card flips over its own anchor.",
+            shell.contains("keyboardController?.hide()"),
+        )
+        assertTrue(
+            "The shell hands the body to the top bar as a slot.",
             shell.contains("menuContent = {") && shell.contains("MenuPopoverContent("),
         )
+        listOf("menuOpen", "onOpenMenu", "onMenuDismiss", "menuContent", "DropdownMenu(").forEach {
+            assertFalse(
+                "`$it` must not survive in the bottom pill: the ⋮ moved to the top bar.",
+                row.contains(it),
+            )
+        }
     }
 
     @Test
