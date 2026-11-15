@@ -74,10 +74,26 @@ final class LifecycleSaveCoordinator {
 
     // MARK: - Burst guard
 
-    /// `true` once this background episode has already saved. Set by a
+    /// `true` while this episode's save has already run. Set by a
     /// `.background` save; cleared by `.active`. Prevents a double-write when
     /// `.background` fires again without an intervening `.active`.
     private var savedThisEpisode: Bool = false
+
+    /// `true` while the buffer holds the cold-start inbound seed and the app has
+    /// not left the foreground since it was applied.
+    ///
+    /// Why it exists: the seed runs in `iosAppApp.init()`, BEFORE the first
+    /// `.active` can arrive, and the inbox entry is consumed by it — so a
+    /// launch-time `.active` (`.inactive` → `.active` is delivered during launch
+    /// on a real device) would reset the buffer to `""` with nothing left to
+    /// re-drain, silently discarding the shared text. The flag makes that first
+    /// `.active` skip the reset exactly once.
+    ///
+    /// Why it cannot weaken the ephemeral contract: it is dropped by any
+    /// `.background` transition, so it only ever means "the app is still in the
+    /// same foreground session that the seed created". A seed the user has left
+    /// the app from is reset on the next `.active` like every other buffer.
+    private var keepsLaunchSeed: Bool = false
 
     // MARK: - Init
 
@@ -119,11 +135,26 @@ final class LifecycleSaveCoordinator {
         saveUseCase.invoke(text: textProvider())
     }
 
+    /// Marks the buffer as holding the cold-start inbound seed (FR-16, EC-19).
+    ///
+    /// Called by `ColdStartSeeder` immediately after a drain that seeded text, so
+    /// the first `.active` of this launch keeps the buffer instead of resetting
+    /// it. Callers: the composition root only — never the warm `.active` path,
+    /// where the reset has already run before the drain.
+    func adoptLaunchSeed() {
+        keepsLaunchSeed = true
+    }
+
     /// ScenePhase `.background`. Performs the burst-guarded SYNCHRONOUS save,
     /// wrapped in beginBackgroundTask / endBackgroundTask. No async / Task.
     /// Empty/whitespace text makes zero repo calls (trim-guarded by the use
     /// case) but still arms the guard for the episode.
     func onBackground() {
+        // The app is leaving the foreground: a launch seed no longer belongs to
+        // the current session, so the next `.active` resets it like any buffer.
+        // Cleared BEFORE the burst guard so a skipped save cannot keep it alive.
+        keepsLaunchSeed = false
+
         // Burst guard: skip if we already saved this background episode.
         guard !savedThisEpisode else { return }
 
@@ -154,10 +185,20 @@ final class LifecycleSaveCoordinator {
     }
 
     /// ScenePhase `.active`. Resets the ephemeral note (`resetNote("")`) and
-    /// clears the per-episode burst guard. Cold-start `.active` does not fire via
-    /// `.onChange(of:)`, so there is no spurious reset on launch.
+    /// clears the per-episode burst guard.
+    ///
+    /// The single exception is the cold-start inbound seed: when
+    /// `adoptLaunchSeed()` armed the guard, this activation keeps the buffer
+    /// instead of clearing it — the seed was applied before `body` and the inbox
+    /// is already empty, so a reset here would destroy the shared text (FR-16).
+    /// The guard is consumed whatever happens, so the very next `.active` resets
+    /// normally.
     func onActive() {
-        resetNote("")
+        if keepsLaunchSeed {
+            keepsLaunchSeed = false
+        } else {
+            resetNote("")
+        }
         savedThisEpisode = false
     }
 

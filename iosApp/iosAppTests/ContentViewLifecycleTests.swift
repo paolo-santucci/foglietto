@@ -274,6 +274,60 @@ final class ContentViewLifecycleTests: XCTestCase {
             "not the reset buffer (FR-17 / EC-19)")
     }
 
+    // -----------------------------------------------------------------------
+    // MARK: - .active after the cold-start seed — the seed survives (FR-16)
+    // -----------------------------------------------------------------------
+
+    /// The real launch sequence, in one test: the composition root seeds inside
+    /// `init()` (the inbox is consumed there), and SwiftUI then delivers the
+    /// launch activation `.inactive` → `.active`.
+    ///
+    /// Without the launch-seed guard that activation reset the buffer to `""`
+    /// with nothing left to re-drain — a shared text vanished before the first
+    /// frame. This is the regression that made a share look like it did nothing.
+    func test_active_afterTheColdStartSeed_keepsTheSharedText() {
+        // Arrange: production composition, temp-dir inbox standing in for the
+        // App Group (the extension already wrote the payload).
+        let container = FileManager.default.temporaryDirectory
+            .appending(path: "ContentViewLifecycle-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: container) }
+
+        let inbox = ShareInbox(containerURL: container)
+        XCTAssertTrue(inbox.write("shared\r\ntext"), "Precondition: the extension wrote the inbox")
+
+        let spy = LifecycleWiringSpyRepository()
+        let viewModel = NoteViewModel(settings: StubSettingsRepository())
+        let coordinator = LifecycleSaveCoordinator(
+            recovery: spy,
+            textProvider: { viewModel.text },
+            resetNote: { value in viewModel.populate(value) }
+        )
+        let drainer = ColdStartSeeder.seed(
+            inbox: inbox,
+            lifecycle: coordinator,
+            viewModel: viewModel
+        )
+        let revisionsAfterSeed = viewModel.populationRevision
+
+        // Act: the launch activation arrives after the seed.
+        ContentView.dispatchScenePhase(.active, to: coordinator, drainer: drainer)
+
+        // Assert.
+        XCTAssertEqual(viewModel.text, "shared\ntext",
+            "the launch .active must not wipe the cold-start seed — the inbox is " +
+            "already drained, so the shared text would be lost (FR-16 / EC-19)")
+        XCTAssertEqual(viewModel.populationRevision, revisionsAfterSeed,
+            "no reset populate may run on the launch activation (FR-16)")
+
+        // The ephemeral contract still holds: a later activation clears the buffer.
+        ContentView.dispatchScenePhase(.background, to: coordinator, drainer: drainer)
+        ContentView.dispatchScenePhase(.active, to: coordinator, drainer: drainer)
+
+        XCTAssertEqual(viewModel.text, "",
+            "the launch-seed exception is one-shot: leaving and returning clears the " +
+            "buffer like any other ephemeral note (FR-14)")
+    }
+
     /// The two-argument call site must keep its pre-drain behaviour (FR-14 regression).
     ///
     /// `drainer` is defaulted, so any caller that has not been migrated still compiles

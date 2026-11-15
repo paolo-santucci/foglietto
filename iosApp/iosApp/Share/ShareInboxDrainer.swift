@@ -109,14 +109,21 @@ struct ShareInboxDrainer {
     ///
     /// A rejected payload (absent, unreadable or blank) is still consumed: the
     /// entry is cleared and nothing else happens — no save, no seed, no toast.
-    func drain() {
+    ///
+    /// - Returns: `true` when a payload was seeded into the buffer, `false` when
+    ///   the inbox held nothing usable. The cold-start caller uses it to arm the
+    ///   launch-seed guard on the coordinator (FR-16); the warm `.active` caller
+    ///   ignores it, because its reset has already run.
+    @discardableResult
+    func drain() -> Bool {
         guard let text = normalize(readEntry()) else {
             clearEntry()
-            return
+            return false
         }
 
         saveCurrentBuffer()
         populate(text)
         clearEntry()
+        return true
     }
 }

@@ -220,6 +220,11 @@ struct iosAppApp: App {
 /// warm `.active` path (`ContentView.dispatchScenePhase`) reuses it instead of
 /// building a second one: one drainer, two call sites, no ordering divergence.
 ///
+/// When the drain actually seeded text, the coordinator is told to keep it
+/// (`adoptLaunchSeed()`), because the launch-time `.active` arrives AFTER this
+/// call and would otherwise reset the buffer to `""` with the inbox already
+/// consumed — the shared text would be lost before the first frame.
+///
 /// Why a helper and not four inline lines: `iosAppApp.init()` is already at its
 /// size limit, and the five ordered steps (read → normalize → save → populate →
 /// clear) are the contract the cold-start cases pin.
@@ -255,7 +260,9 @@ enum ColdStartSeeder {
             saveCurrentBuffer: { _ = lifecycle.saveCurrentBuffer() },
             populate: { viewModel.populate($0) }
         )
-        drainer.drain()
+        if drainer.drain() {
+            lifecycle.adoptLaunchSeed()
+        }
         return drainer
     }
 }
