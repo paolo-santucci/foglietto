@@ -182,7 +182,7 @@ class TopActionBarChromeTest {
         )
         assertTrue(
             "the card is capped at 320dp, never wider than the window.",
-            code.contains("widthIn(max = PopoverWidth)") && code.contains("PopoverWidth = 320.dp"),
+            code.contains("width(PopoverWidth)") && code.contains("PopoverWidth = 280.dp"),
         )
         assertTrue(
             "8dp between the ⋮ tile and the card, on the default (downward) placement.",

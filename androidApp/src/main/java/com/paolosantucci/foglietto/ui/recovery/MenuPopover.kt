@@ -72,7 +72,7 @@ import com.paolosantucci.foglietto.ui.theme.FogliettoTheme
  *
  * ## Height
  *
- * The rows are emitted eagerly into a fixed-height scroll window ([NotesMaxHeight], two rows).
+ * The rows are emitted eagerly into a fixed-height scroll window ([NotesMaxHeight], five rows).
  * Two constraints meet here: the card must stay a compact popover rather than a full-height menu
  * (the ⋮ it anchors to sits in the top bar, so the card opens downward over the editor and a taller
  * one would run into the bottom pill), and it must not contain a lazy list — a Material 3
@@ -138,7 +138,7 @@ internal fun MenuPopoverContent(
 /**
  * One menu action row — the popover's About entry (FR-34).
  *
- * The whole row is the target: `heightIn(min = 56.dp)` keeps it above the NFR-04 floor and
+ * The whole row is the target: `heightIn(min = 64.dp)` keeps it above the NFR-04 floor and
  * `clickable` is applied **before** the content padding so the ripple and the touch area cover the
  * full row, not just the text. The label is visible text, so the leading icon is decorative
  * (`contentDescription = null`).
@@ -151,7 +151,7 @@ private fun MenuActionRow(
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .heightIn(min = 56.dp)
+            .heightIn(min = 64.dp)
             .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 12.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -167,10 +167,10 @@ private fun MenuActionRow(
 }
 
 /**
- * The tallest the note list may get inside the card: two 72dp rows. Kept well inside the free
+ * The tallest the note list may get inside the card: five 72dp rows. Kept well inside the free
  * space below the ⋮ tile so the whole card (header, list, About) opens without clipping.
  */
-private val NotesMaxHeight = 144.dp
+private val NotesMaxHeight = 360.dp
 
 // ── Previews (TASK-25, I6) ───────────────────────────────────────────────────
 // `ui-tooling-preview` is already on the classpath; rendering these in Android Studio needs

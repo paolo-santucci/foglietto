@@ -85,8 +85,8 @@ class ShellSheetTest {
             popover.contains("Icons.Outlined.Info"),
         )
         assertTrue(
-            "the About row is a ≥56dp full-width target.",
-            popover.contains("heightIn(min = 56.dp)"),
+            "the About row is a ≥64dp full-width target.",
+            popover.contains("heightIn(min = 64.dp)"),
         )
         assertFalse(
             "no lazy list inside the popover: a DropdownMenu content column is measured for " +
@@ -97,7 +97,7 @@ class ShellSheetTest {
             "the note rows sit in a bounded, non-lazy scroll window so the card fits above the ⋮.",
             popover.contains("heightIn(max = NotesMaxHeight)") &&
                 popover.contains("verticalScroll(") &&
-                popover.contains("NotesMaxHeight = 144.dp"),
+                popover.contains("NotesMaxHeight = 360.dp"),
         )
     }
 

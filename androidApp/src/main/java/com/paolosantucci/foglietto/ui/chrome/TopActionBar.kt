@@ -6,7 +6,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Redo
@@ -138,7 +138,7 @@ fun TopActionBar(
             DropdownMenu(
                 expanded = menuOpen,
                 onDismissRequest = onMenuDismiss,
-                modifier = Modifier.widthIn(max = PopoverWidth),
+                modifier = Modifier.width(PopoverWidth),
                 offset = DpOffset(x = 0.dp, y = PopoverGap),
                 shape = PopoverShape,
                 containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -158,7 +158,7 @@ private val TileSpacing = 8.dp
 
 // ⋮ menu metrics — Google Keep's overflow card: wide, softly rounded, one shadow step up.
 private val PopoverShape = RoundedCornerShape(28.dp)
-private val PopoverWidth = 320.dp
+private val PopoverWidth = 280.dp
 private val PopoverElevation = 3.dp
 
 /** The gap between the ⋮ tile and the card. */
