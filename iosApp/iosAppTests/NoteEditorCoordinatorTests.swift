@@ -625,7 +625,7 @@ final class NoteEditorCoordinatorM4Tests: XCTestCase {
         coord.undo()
 
         XCTAssertEqual(tv.text, "- a\n- ",
-            "Undo must restore the deleted marker — the buffer shrank, so any undo "
+            "Undo must restore the deleted marker — the buffer shrank, so any undo " +
             "record addressing the old length would now be out of range")
     }
 
