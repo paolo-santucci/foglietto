@@ -37,8 +37,11 @@ import org.junit.Test
  *  - [whitespaceOnlyTextMakesNoRepositoryCallButStillArmsTheGuard] — the shared trim-guard
  *    (EC-25) suppresses the repository call while the guard still arms for the episode.
  *
- * Determinism: no test sleeps for a wall-clock window; the only real wait is the 50 ms injected
- * ceiling, and the "stuck" executor task is released explicitly at the end of the test.
+ * Determinism: no test sleeps for a fixed wall-clock window. The only real wait is the 50 ms
+ * injected ceiling, and the "stuck" executor task is released explicitly at the end of the test.
+ * The EC-11 event-order assertion polls a bounded (2 s) deadline until the executor has recorded
+ * its own `start:`/`end:` bookkeeping, because that bookkeeping lands *after* the future the
+ * coordinator awaits on completes — waiting for the count, never a fixed sleep.
  */
 class LifecycleSaveCoordinatorTest {
 
@@ -140,7 +143,9 @@ class LifecycleSaveCoordinatorTest {
                     "start:$SAVE_THREAD_NAME",
                     "end:$SAVE_THREAD_NAME",
                 ),
-                recording.events.toList(),
+                // Strict full-list equality; the read is gated on the executor having finished
+                // recording all four events (see [RecordingExecutorService.awaitRecordedEvents]).
+                recording.awaitRecordedEvents(expected = 4),
             )
         }
     }
@@ -240,6 +245,37 @@ class LifecycleSaveCoordinatorTest {
         val maxConcurrent = AtomicInteger()
         private val active = AtomicInteger()
 
+        /**
+         * Waits (bounded by [EVENT_WAIT_MILLIS]) until exactly [expected] events have been recorded,
+         * then returns an immutable snapshot of them.
+         *
+         * Why the wait: a submitted command is the delegate `FutureTask`, whose result is published
+         * by `FutureTask.run()` *before* this decorator's `finally` appends `end:<thread>`. The
+         * coordinator resolves its bounded `Future.get` on that published result, so on a loaded
+         * runner the test thread can win the race and read the list while the last `end:` is still
+         * unwritten — that was the CI flake, not a coordinator defect. Waiting for the count first
+         * removes the sampling race without weakening the assertion: this test submits exactly two
+         * commands and each records exactly one `start:` and one `end:`, so `size == expected`
+         * proves the sequence is complete and can no longer change, and the order is still pinned
+         * by full-list equality at the call site. If the events never arrive, the size assertion
+         * fails loudly with the partial sequence instead of reporting a misleading order mismatch.
+         */
+        fun awaitRecordedEvents(expected: Int): List<String> {
+            val deadline = System.nanoTime() + TimeUnit.MILLISECONDS.toNanos(EVENT_WAIT_MILLIS)
+            while (events.size < expected && System.nanoTime() < deadline) {
+                Thread.sleep(EVENT_POLL_MILLIS)
+            }
+            synchronized(events) {
+                val snapshot = events.toList()
+                assertEquals(
+                    "executor recorded $snapshot; expected exactly $expected start/end events",
+                    expected,
+                    snapshot.size,
+                )
+                return snapshot
+            }
+        }
+
         override fun execute(command: Runnable) {
             delegate.execute {
                 val nowActive = active.incrementAndGet()
@@ -273,6 +309,17 @@ private const val TEXT = "hello world"
 
 /** The injected executor's thread name — the NFR-01 assertion compares against it directly. */
 private const val SAVE_THREAD_NAME = "foglietto-save-test"
+
+/**
+ * Upper bound on waiting for the recording executor's `start:`/`end:` bookkeeping to land.
+ * Generous compared to the microseconds the executor needs, so a loaded CI runner never fails on
+ * it; a genuinely missing event still fails loudly (the helper asserts the exact count) instead of
+ * hanging.
+ */
+private const val EVENT_WAIT_MILLIS = 2_000L
+
+/** Poll interval for the same bounded wait — 1 ms keeps the pass path effectively free. */
+private const val EVENT_POLL_MILLIS = 1L
 
 private fun namedThreadFactory(name: String): ThreadFactory = ThreadFactory { runnable ->
     Thread(runnable, name).apply { isDaemon = true }
