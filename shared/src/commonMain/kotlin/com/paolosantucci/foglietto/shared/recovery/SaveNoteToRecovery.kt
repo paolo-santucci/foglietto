@@ -55,4 +55,39 @@ class SaveNoteToRecovery(private val repository: RecoveryRepository) {
         repository.trim(10)
         return path
     }
+
+    /**
+     * [invoke] with the failure contained, for callers that cannot catch.
+     *
+     * A Kotlin exception crossing into Swift terminates the process — Swift has no
+     * handler for it — so the iOS host cannot use [invoke] on a path where a full
+     * disk or a revoked directory must degrade instead of crashing. This entry point
+     * catches the same exception [invoke] propagates and reports it as a
+     * [SaveAttempt] value: the caller decides what to do, and nothing crosses the
+     * boundary as a crash.
+     *
+     * Ordering is unchanged: on failure nothing was written and `trim` was skipped,
+     * so a caller that must keep the previous buffer can tell that the collision save
+     * did not happen (FR-07).
+     */
+    fun attemptSave(text: String): SaveAttempt =
+        try {
+            SaveAttempt(savedPath = invoke(text))
+        } catch (failure: Exception) {
+            SaveAttempt(failed = true)
+        }
 }
+
+/**
+ * Outcome of [SaveNoteToRecovery.attemptSave].
+ *
+ * Three states, because "nothing to save" and "could not save" must not collapse into
+ * one another — the second one forbids a caller from replacing the buffer (FR-07):
+ *
+ * | [savedPath] | [failed] | meaning                                    |
+ * |-------------|----------|--------------------------------------------|
+ * | non-null    | `false`  | written, `trim` ran                        |
+ * | `null`      | `false`  | blank input — nothing attempted            |
+ * | `null`      | `true`   | I/O failure — nothing written, nothing lost |
+ */
+data class SaveAttempt(val savedPath: String? = null, val failed: Boolean = false)

@@ -146,7 +146,7 @@ final class ShareInboxDrainerTests: XCTestCase {
         inbox: InboxStub,
         recorder: DrainRecorder,
         normalize: @escaping (String?) -> String? = { $0?.replacingOccurrences(of: "\r\n", with: "\n") },
-        save: @escaping () -> Void = {},
+        save: @escaping () -> Bool = { true },
         populate: @escaping (String) -> Void = { _ in }
     ) -> ShareInboxDrainer {
         ShareInboxDrainer(
@@ -161,7 +161,7 @@ final class ShareInboxDrainerTests: XCTestCase {
             },
             saveCurrentBuffer: {
                 recorder.recordSave()
-                save()
+                return save()
             },
             populate: { text in
                 recorder.recordPopulate(text)
@@ -279,6 +279,26 @@ final class ShareInboxDrainerTests: XCTestCase {
         XCTAssertEqual(recorder.saveCount, 1, "Exactly one collision save per drain")
     }
 
+    /// A refused collision save must NOT replace the buffer and must NOT consume the
+    /// payload: the draft stays on screen and the share replays on the next activation
+    /// (FR-07). The drain also reports "no seed", so the caller cannot arm the
+    /// inbound-seed guard for a seed that never happened.
+    func testRefusedCollisionSaveLeavesTheBufferAndThePayload() {
+        let recorder = DrainRecorder()
+        let inbox = InboxStub(payload: "new")
+        let drainer = makeDrainer(inbox: inbox, recorder: recorder, save: { false })
+
+        let seeded = drainer.drain()
+
+        XCTAssertFalse(seeded, "a refused save is not a seed")
+        XCTAssertEqual(recorder.saveCount, 1, "the collision save is attempted exactly once")
+        XCTAssertTrue(recorder.populatedTexts.isEmpty,
+            "no seed may run when the old buffer could not be saved (FR-07)")
+        XCTAssertEqual(inbox.clearCount, 0,
+            "the payload must stay pending so the next activation replays it (FR-19)")
+        XCTAssertEqual(inbox.payload, "new", "the entry survives a refused save")
+    }
+
     // -----------------------------------------------------------------------
     // MARK: - Idempotence (FR-10, FR-19)
     // -----------------------------------------------------------------------
@@ -370,7 +390,10 @@ final class ShareInboxDrainerTests: XCTestCase {
                     recorder.recordClear()
                 },
                 normalize: IncomingTextKt.acceptIncomingText,
-                saveCurrentBuffer: { recorder.recordSave() },
+            saveCurrentBuffer: {
+                recorder.recordSave()
+                return true
+            },
                 populate: { recorder.recordPopulate($0) }
             )
 
@@ -415,7 +438,10 @@ final class ShareInboxDrainerTests: XCTestCase {
                 recorder.recordClear()
             },
             normalize: IncomingTextKt.acceptIncomingText,
-            saveCurrentBuffer: { recorder.recordSave() },
+            saveCurrentBuffer: {
+                recorder.recordSave()
+                return true
+            },
             populate: { recorder.recordPopulate($0) }
         )
 
@@ -450,7 +476,10 @@ final class ShareInboxDrainerTests: XCTestCase {
         let drainer = ShareInboxDrainer(
             inbox: inbox,
             normalize: IncomingTextKt.acceptIncomingText,
-            saveCurrentBuffer: { recorder.recordSave() },
+            saveCurrentBuffer: {
+                recorder.recordSave()
+                return true
+            },
             populate: { recorder.recordPopulate($0) }
         )
 

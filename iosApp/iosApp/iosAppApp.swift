@@ -257,7 +257,7 @@ enum ColdStartSeeder {
         let drainer = ShareInboxDrainer(
             inbox: inbox,
             normalize: { IncomingTextKt.acceptIncomingText(raw: $0) },
-            saveCurrentBuffer: { _ = lifecycle.saveCurrentBuffer() },
+            saveCurrentBuffer: { lifecycle.saveCurrentBuffer() },
             populate: { viewModel.populate($0) }
         )
         if drainer.drain() {

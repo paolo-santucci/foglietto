@@ -175,4 +175,47 @@ class SaveNoteToRecoveryTest {
             "trim must NOT be called when save throws, got: ${fakeRepo.callLog}"
         )
     }
+
+    // -----------------------------------------------------------------------
+    // Case 7 — attemptSave: the same save with the failure contained
+    // -----------------------------------------------------------------------
+
+    /// Blank input attempts nothing: no repository call, not a failure.
+    @Test
+    fun given_blank_text_when_attemptSave_then_neitherSavedNorFailed_and_no_repository_call() {
+        val fakeRepo = FakeRecoveryRepositoryForUseCase()
+        val attempt = SaveNoteToRecovery(fakeRepo).attemptSave("   \n ")
+
+        assertNull(attempt.savedPath, "blank input writes nothing")
+        assertTrue(!attempt.failed, "blank input is not a failure — nothing was attempted")
+        assertTrue(fakeRepo.callLog.isEmpty(), "zero repository calls, got: ${'$'}{fakeRepo.callLog}")
+    }
+
+    /// A successful save reports the path and runs trim exactly once, like invoke.
+    @Test
+    fun given_savable_text_when_attemptSave_then_reportsPath_and_trims() {
+        val fakeRepo = FakeRecoveryRepositoryForUseCase()
+        val attempt = SaveNoteToRecovery(fakeRepo).attemptSave("hello")
+
+        assertEquals(fakeRepo.sentinelPath, attempt.savedPath)
+        assertTrue(!attempt.failed, "a successful save is not a failure")
+        assertEquals(listOf("save:hello", "trim:10"), fakeRepo.callLog)
+    }
+
+    /// The whole point: a throwing repository comes back as a value instead of
+    /// crossing into Swift, where it would terminate the process.
+    @Test
+    fun given_repository_save_throws_when_attemptSave_then_reportsFailed_and_skipsTrim() {
+        val fakeRepo = FakeRecoveryRepositoryForUseCase()
+        fakeRepo.saveError = RuntimeException("disk full")
+
+        val attempt = SaveNoteToRecovery(fakeRepo).attemptSave("hello")
+
+        assertTrue(attempt.failed, "a throwing save must be reported as failed")
+        assertNull(attempt.savedPath, "nothing was written, so there is no path")
+        assertTrue(
+            fakeRepo.callLog.isEmpty(),
+            "trim must not run after a failed save, got: ${'$'}{fakeRepo.callLog}"
+        )
+    }
 }

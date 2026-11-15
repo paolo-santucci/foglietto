@@ -8,14 +8,18 @@
 //   1. text = normalize(readEntry())        — normalize sees the RAW payload
 //   2. text == nil  -> clearEntry(); return — blank or absent: no save, no seed
 //   3. saveCurrentBuffer()                  — the collision save (trim-guarded)
+//      false       -> return                — the store refused: the payload stays
+//                                             pending and the buffer is untouched
 //   4. populate(text)                       — the single programmatic mutation
 //   5. clearEntry()                         — ONLY after a successful seed, so a
 //                                             process death between 3 and 4
 //                                             replays the share on next launch
 //
-// Errors are never thrown and nothing is caught: a failing collision save raises
-// out of step 3 and terminates the process before the seed and before the delete,
-// which is exactly the FR-07 ordering (no seed, the entry survives).
+// Errors are values, never thrown: a refused collision save returns `false` before
+// the seed and before the delete, so nothing is seeded and the payload survives for
+// the next launch (FR-07). Earlier revisions relied on a Kotlin exception taking the
+// process down; that crashed the app on a full disk, which is what step 3's return
+// value replaces.
 //
 // Synchrony (NFR-01): this file contains no Task, no DispatchQueue, no async and
 // no await. The drain returns only after every effect has been applied, which is
@@ -56,7 +60,8 @@ struct ShareInboxDrainer {
 
     /// The collision save (`LifecycleSaveCoordinator.saveCurrentBuffer`): the
     /// buffer the user was looking at is saved before the seed replaces it (FR-06).
-    private let saveCurrentBuffer: () -> Void
+    /// `false` means the store refused the write.
+    private let saveCurrentBuffer: () -> Bool
 
     /// The seed entry point (`NoteViewModel.populate`): the only programmatic
     /// mutation of the buffer on the inbound path (FR-05).
@@ -74,7 +79,7 @@ struct ShareInboxDrainer {
     init(
         inbox: ShareInbox,
         normalize: @escaping (String?) -> String?,
-        saveCurrentBuffer: @escaping () -> Void,
+        saveCurrentBuffer: @escaping () -> Bool,
         populate: @escaping (String) -> Void
     ) {
         self.init(
@@ -93,7 +98,7 @@ struct ShareInboxDrainer {
         read: @escaping () -> String?,
         clear: @escaping () -> Void,
         normalize: @escaping (String?) -> String?,
-        saveCurrentBuffer: @escaping () -> Void,
+        saveCurrentBuffer: @escaping () -> Bool,
         populate: @escaping (String) -> Void
     ) {
         self.readEntry = read
@@ -110,10 +115,14 @@ struct ShareInboxDrainer {
     /// A rejected payload (absent, unreadable or blank) is still consumed: the
     /// entry is cleared and nothing else happens — no save, no seed, no toast.
     ///
-    /// - Returns: `true` when a payload was seeded into the buffer, `false` when
-    ///   the inbox held nothing usable. The cold-start caller uses it to arm the
-    ///   launch-seed guard on the coordinator (FR-16); the warm `.active` caller
-    ///   ignores it, because its reset has already run.
+    /// A refused collision save is NOT a rejected payload: the entry is left in
+    /// place so the next activation replays it (FR-07), and the buffer keeps what
+    /// it had.
+    ///
+    /// - Returns: `true` when a payload was seeded into the buffer, `false`
+    ///   otherwise — including the refused-save case, so the caller cannot arm the
+    ///   inbound-seed guard on a seed that never happened. The cold-start caller
+    ///   also uses it to arm that guard (FR-16).
     @discardableResult
     func drain() -> Bool {
         guard let text = normalize(readEntry()) else {
@@ -121,7 +130,9 @@ struct ShareInboxDrainer {
             return false
         }
 
-        saveCurrentBuffer()
+        // FR-07: nothing replaces the buffer when the collision save was refused.
+        guard saveCurrentBuffer() else { return false }
+
         populate(text)
         clearEntry()
         return true

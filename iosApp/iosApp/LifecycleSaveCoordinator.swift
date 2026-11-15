@@ -18,12 +18,14 @@
 //     (m4_gate check 4). The repository is passed in via init.
 //   - The save delegates to the shared `SaveNoteToRecovery` use case, which
 //     trim-guards empty/whitespace (zero repo calls) and on non-empty calls
-//     save(raw) then trim(10). Synchronous; returns String?.
+//     save(raw) then trim(10). Synchronous. Failures arrive as a value
+//     (`attemptSave`), never as an exception: a Kotlin exception crossing into
+//     Swift terminates the process, and a full disk must degrade instead.
 //   - ONE save code path (D6 / sp-20261114): `saveCurrentBuffer()` is the only
 //     place that calls the use case; `onBackground()` and `onTerminate()`
 //     delegate to it, and the inbound drain calls it directly for the
-//     collision save. No `catch` anywhere, so a Kotlin failure propagates and
-//     the process dies before the inbound seed (FR-07 / EC-11).
+//     collision save. A refused write returns `false` so the drain keeps the
+//     payload pending instead of consuming it (FR-07).
 //
 // Burst guard (QP §Integration constraints):
 //   A per-session `Bool` "saved this background episode" flag prevents a
@@ -114,24 +116,22 @@ final class LifecycleSaveCoordinator {
 
     /// The single, trim-guarded, synchronous save path (D6).
     ///
-    /// Reads the buffer through `textProvider`, hands the RAW text to the shared
-    /// `SaveNoteToRecovery` use case, and returns the written recovery path — or
-    /// `nil` when the use case's trim guard suppressed a blank/whitespace buffer
-    /// (zero repository calls, EC-12).
+    /// Reads the buffer through `textProvider` and hands the RAW text to the shared
+    /// `SaveNoteToRecovery` use case — through `attemptSave`, because a Kotlin
+    /// exception crossing into Swift terminates the process and a full disk must
+    /// degrade instead. One entry point, so the ordering can never diverge between
+    /// `.background`, termination and the inbound collision save.
     ///
     /// Callers: `onBackground()`, `onTerminate()`, and the inbound drain's
     /// collision save. Deliberately burst-guard-FREE: the episode guard belongs to
     /// `onBackground()` alone, so a drain save neither arms nor consumes it.
     ///
-    /// There is intentionally no `catch`: a Kotlin exception must propagate and
-    /// terminate the process before the inbound seed runs (FR-07 / EC-11), and no
-    /// `Task` / `DispatchQueue` hop: the write is complete when this returns
-    /// (NFR-01).
-    ///
-    /// - Returns: the recovery path, or `nil` for a blank/whitespace buffer.
+    /// - Returns: `true` when the buffer is safe to replace — it was written, or it
+    ///   was blank and there was nothing to write. `false` when the store refused the
+    ///   write, which forbids the inbound seed from consuming the payload (FR-07).
     @discardableResult
-    func saveCurrentBuffer() -> String? {
-        saveUseCase.invoke(text: textProvider())
+    func saveCurrentBuffer() -> Bool {
+        !saveUseCase.attemptSave(text: textProvider()).failed
     }
 
     /// Marks the buffer as holding an inbound seed the app has not left the
@@ -170,17 +170,20 @@ final class LifecycleSaveCoordinator {
         }
 
         // Synchronous save through the ONE shared save path (D6).
-        // saveCurrentBuffer() → SaveNoteToRecovery.invoke(text:) trim-guards
+        // saveCurrentBuffer() → SaveNoteToRecovery.attemptSave(text:) trim-guards
         // empty/whitespace (zero repo calls) and on non-empty calls save(raw)
         // then trim(10). No Task, no DispatchQueue, no async, no await anywhere
-        // in this path (C-02).
-        _ = saveCurrentBuffer()
+        // in this path (C-02). A refused write comes back as `false` instead of
+        // terminating the process.
+        let persisted = saveCurrentBuffer()
 
         // Release the background time budget.
         UIApplication.shared.endBackgroundTask(bgTask)
 
-        // Arm the burst guard for this background episode.
-        savedThisEpisode = true
+        // Arm the episode guard only when the write actually happened: a refused
+        // save leaves the guard clear so the next `.background` retries instead of
+        // silently dropping the draft for the rest of the foreground session.
+        if persisted { savedThisEpisode = true }
     }
 
     /// ScenePhase `.active`. Resets the ephemeral note (`resetNote("")`) and
@@ -213,6 +216,6 @@ final class LifecycleSaveCoordinator {
         // The OS may have already called .background before termination; this is
         // a best-effort duplicate-safe write (SaveNoteToRecovery is idempotent
         // for the same text, and trim(10) is a no-op when already at capacity).
-        _ = saveCurrentBuffer()
+        saveCurrentBuffer()
     }
 }

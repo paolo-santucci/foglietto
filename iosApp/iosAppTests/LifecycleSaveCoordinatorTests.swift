@@ -236,19 +236,20 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
     // -----------------------------------------------------------------------
 
     /// The drain's one save call: the RAW provider text reaches SaveNoteToRecovery
-    /// exactly once, trim(keep: 10) follows it, and the written path comes back.
-    func test_saveCurrentBuffer_nonBlank_savesOnce_withTrim10_andReturnsPath() {
+    /// exactly once, trim(keep: 10) follows it, and the buffer is reported safe to
+    /// replace.
+    func test_saveCurrentBuffer_nonBlank_savesOnce_withTrim10_andReportsPersisted() {
         let (spy, coordinator) = makeCoordinator(textProvider: { "draft" })
 
-        let path = coordinator.saveCurrentBuffer()
+        let persisted = coordinator.saveCurrentBuffer()
 
         XCTAssertEqual(spy.saveCalls, ["draft"],
             "saveCurrentBuffer() must pass the raw provider text to SaveNoteToRecovery exactly once (FR-06)")
         XCTAssertEqual(spy.trimCalls, [Int32(10)],
             "saveCurrentBuffer() must call trim(keep: 10) once after the save — the same guard " +
             "onBackground() uses (FR-06 / D6)")
-        XCTAssertEqual(path, "/recovery/1.txt",
-            "saveCurrentBuffer() must return the path reported by the repository, not nil (FR-06)")
+        XCTAssertTrue(persisted,
+            "a completed save must report the buffer safe to replace (FR-07)")
     }
 
     // -----------------------------------------------------------------------
@@ -257,13 +258,13 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
 
     /// Whitespace-only buffer: the shared trim guard suppresses the save, so the
     /// repository records zero writes and the method returns nil.
-    func test_saveCurrentBuffer_whitespaceOnly_returnsNil_zeroRepoCalls() {
+    func test_saveCurrentBuffer_whitespaceOnly_reportsPersisted_zeroRepoCalls() {
         let (spy, coordinator) = makeCoordinator(textProvider: { "   " })
 
-        let path = coordinator.saveCurrentBuffer()
+        let persisted = coordinator.saveCurrentBuffer()
 
-        XCTAssertNil(path,
-            "saveCurrentBuffer() must return nil for a whitespace-only buffer (EC-12)")
+        XCTAssertTrue(persisted,
+            "a blank buffer is safe to replace — there was nothing to persist (EC-12)")
         XCTAssertTrue(spy.saveCalls.isEmpty,
             "saveCurrentBuffer() must make zero save calls for a whitespace-only buffer — " +
             "the trim guard must not be bypassed (EC-12)")
@@ -272,13 +273,13 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
     }
 
     /// Empty buffer: same contract as the whitespace case.
-    func test_saveCurrentBuffer_empty_returnsNil_zeroRepoCalls() {
+    func test_saveCurrentBuffer_empty_reportsPersisted_zeroRepoCalls() {
         let (spy, coordinator) = makeCoordinator(textProvider: { "" })
 
-        let path = coordinator.saveCurrentBuffer()
+        let persisted = coordinator.saveCurrentBuffer()
 
-        XCTAssertNil(path,
-            "saveCurrentBuffer() must return nil for an empty buffer (EC-12)")
+        XCTAssertTrue(persisted,
+            "an empty buffer is safe to replace — there was nothing to persist (EC-12)")
         XCTAssertTrue(spy.saveCalls.isEmpty,
             "saveCurrentBuffer() must make zero save calls for an empty buffer (EC-12)")
         XCTAssertTrue(spy.trimCalls.isEmpty,
