@@ -221,9 +221,9 @@ struct iosAppApp: App {
 /// building a second one: one drainer, two call sites, no ordering divergence.
 ///
 /// When the drain actually seeded text, the coordinator is told to keep it
-/// (`adoptLaunchSeed()`), because the launch-time `.active` arrives AFTER this
-/// call and would otherwise reset the buffer to `""` with the inbox already
-/// consumed — the shared text would be lost before the first frame.
+/// (`adoptInboundSeed()`), because `.active` arrives after this call — more than
+/// once per launch — and would otherwise reset the buffer to `""` with the inbox
+/// already consumed, losing the shared text before the first frame.
 ///
 /// Why a helper and not four inline lines: `iosAppApp.init()` is already at its
 /// size limit, and the five ordered steps (read → normalize → save → populate →
@@ -261,7 +261,7 @@ enum ColdStartSeeder {
             populate: { viewModel.populate($0) }
         )
         if drainer.drain() {
-            lifecycle.adoptLaunchSeed()
+            lifecycle.adoptInboundSeed()
         }
         return drainer
     }

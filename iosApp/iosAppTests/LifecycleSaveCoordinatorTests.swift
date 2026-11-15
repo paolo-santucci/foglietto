@@ -338,14 +338,13 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
     }
 
     // -----------------------------------------------------------------------
-    // MARK: - The launch seed survives the first .active (FR-16 / FR-29)
+    // MARK: - An inbound seed survives activation bounces (FR-16 / FR-29)
     // -----------------------------------------------------------------------
 
-    /// A cold-start seed is applied in `iosAppApp.init()`, before the first
-    /// `.active`; the inbox entry is already consumed by then. The first
-    /// `.active` must therefore KEEP the buffer — a reset here loses the shared
-    /// text with nothing left to re-drain.
-    func test_onActive_keepsTheLaunchSeedOnce_thenResetsOnTheNextActive() {
+    /// The seed is applied before the inbox entry is deleted, so it cannot be
+    /// re-drained. `.active` is delivered more than once per launch, therefore the
+    /// guard must hold across every activation until the app really leaves.
+    func test_onActive_keepsTheInboundSeedAcrossActivationBounces() {
         var resetCalls: [String] = []
         let coordinator = LifecycleSaveCoordinator(
             recovery: SpyRecoveryRepository(),
@@ -353,21 +352,21 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
             resetNote: { resetCalls.append($0) }
         )
 
-        coordinator.adoptLaunchSeed()
-        coordinator.onActive()          // the launch activation
-        XCTAssertEqual(resetCalls, [],
-            "the first .active after a cold-start seed must NOT reset the buffer — " +
-            "the inbox is already drained, so a reset destroys the shared text (FR-16)")
+        coordinator.adoptInboundSeed()
+        coordinator.onActive()          // launch activation
+        coordinator.onInactive()        // the bounce a URL hand-off produces
+        coordinator.onActive()
+        coordinator.onInactive()
+        coordinator.onActive()
 
-        coordinator.onActive()          // a later activation in the same session
-        XCTAssertEqual(resetCalls, [""],
-            "the guard is one-shot: the next .active resets the ephemeral buffer as " +
-            "before (FR-14), so the launch-seed exception never leaks into the session")
+        XCTAssertEqual(resetCalls, [],
+            "no activation may reset an inbound seed — the inbox is already drained, " +
+            "so every reset loses the shared text for good (FR-16)")
     }
 
-    /// Leaving the foreground drops the guard: a seed the user has backgrounded is
-    /// an ordinary ephemeral buffer and is cleared on the next activation.
-    func test_onActive_afterBackground_stillResetsTheLaunchSeed() {
+    /// Leaving the foreground ends the exception: a seed the user has backgrounded
+    /// is an ordinary ephemeral buffer and is cleared on the next activation.
+    func test_onActive_afterBackground_stillResetsTheInboundSeed() {
         var resetCalls: [String] = []
         let coordinator = LifecycleSaveCoordinator(
             recovery: SpyRecoveryRepository(),
@@ -375,18 +374,18 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
             resetNote: { resetCalls.append($0) }
         )
 
-        coordinator.adoptLaunchSeed()
+        coordinator.adoptInboundSeed()
         coordinator.onBackground()               // the app left the foreground
         coordinator.onActive()                   // coming back
 
         XCTAssertEqual(resetCalls, [""],
-            "a launch seed must not survive a .background — the ephemeral contract " +
+            "an inbound seed must not survive a .background — the ephemeral contract " +
             "clears the buffer on the next .active like any other note (FR-14)")
     }
 
     /// The guard is dropped even when the background save is skipped by the burst
-    /// guard, so a skipped save can never keep the launch seed alive.
-    func test_onBackground_dropsTheLaunchSeedEvenWhenTheBurstGuardSkipsTheSave() {
+    /// guard, so a skipped save can never keep the inbound seed alive.
+    func test_onBackground_dropsTheInboundSeedEvenWhenTheBurstGuardSkipsTheSave() {
         var resetCalls: [String] = []
         var currentText = "shared text"
         let spy = SpyRecoveryRepository()
@@ -396,7 +395,7 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
             resetNote: { resetCalls.append($0) }
         )
 
-        coordinator.adoptLaunchSeed()
+        coordinator.adoptInboundSeed()
         coordinator.onBackground()               // saves and arms the burst guard
         currentText = "edited"
         coordinator.onBackground()               // burst-guarded: no second save
@@ -405,8 +404,24 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
         XCTAssertEqual(spy.saveCalls, ["shared text"],
             "the second .background stays burst-guarded (FR-14)")
         XCTAssertEqual(resetCalls, [""],
-            "the launch-seed guard must be dropped before the burst guard can skip the " +
-            "save, otherwise a skipped save would keep the seed alive across an exit")
+            "the inbound-seed guard must be dropped before the burst guard can skip " +
+            "the save, otherwise a skipped save would keep the seed alive across an exit")
+    }
+
+    /// A plain `.active` with no inbound seed still resets, exactly as before.
+    func test_onActive_withoutAnInboundSeed_stillResets() {
+        var resetCalls: [String] = []
+        let coordinator = LifecycleSaveCoordinator(
+            recovery: SpyRecoveryRepository(),
+            textProvider: { "typed by the user" },
+            resetNote: { resetCalls.append($0) }
+        )
+
+        coordinator.onActive()
+
+        XCTAssertEqual(resetCalls, [""],
+            "the seed exception is scoped to an inbound seed: an ordinary activation " +
+            "resets the ephemeral buffer (FR-14)")
     }
 
     // -----------------------------------------------------------------------

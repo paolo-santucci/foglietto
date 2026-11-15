@@ -98,6 +98,12 @@ struct ContentView: View {
     /// reset is wiped (assessment C-2). Both mutations land in this one synchronous
     /// main-actor turn, so the very next `updateUIView` already shows the seed (EC-19).
     ///
+    /// A drain that seeds also arms the coordinator's inbound-seed guard: the drain
+    /// deletes the inbox entry immediately, and `.active` is delivered more than once
+    /// per launch (a share hand-off bounces `.active` → `.inactive` → `.active`), so
+    /// without the guard the second activation would clear the buffer with nothing
+    /// left to re-drain. Only `.background` releases the guard.
+    ///
     /// `drainer` is defaulted so the pre-existing two-argument call sites still compile;
     /// production always passes the single instance stored at the composition root.
     ///
@@ -116,7 +122,9 @@ struct ContentView: View {
             coordinator.onBackground()
         case .active:
             coordinator.onActive()
-            drainer?.drain()
+            if drainer?.drain() == true {
+                coordinator.adoptInboundSeed()
+            }
         case .inactive:
             coordinator.onInactive()
         @unknown default:
