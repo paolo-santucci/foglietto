@@ -220,14 +220,43 @@ class EditorStateHolder internal constructor(
         oldValue: TextFieldValue,
         newValue: TextFieldValue,
     ): ContinuationResult? {
-        if (!oldValue.selection.collapsed) return null
-        if (newValue.text.length != oldValue.text.length + 1) return null
+        if (!oldValue.selection.collapsed || !newValue.selection.collapsed) return null
+        val oldCaret = oldValue.selection.start
+        if (oldCaret !in 0..oldValue.text.length) return null
+        val newCaret = newValue.selection.start
+        if (newCaret !in 1..newValue.text.length) return null
 
-        val caret = oldValue.selection.start
-        if (caret !in 0..oldValue.text.length) return null
-        if (newValue.text[caret] != '\n') return null
-        if (newValue.text.removeRange(caret, caret + 1) != oldValue.text) return null
+        // Where the line break landed. After an IME commit it sits immediately before the caret;
+        // a keyboard that leaves the caret on the break is covered by the old caret.
+        val breakEnd = when {
+            newValue.text[newCaret - 1].isLineBreak() -> newCaret
+            oldCaret < newValue.text.length && newValue.text[oldCaret].isLineBreak() -> oldCaret + 1
+            else -> return null
+        }
+        // A CRLF pair is one break, not a break preceded by a stray carriage return.
+        val breakStart = if (breakEnd >= 2 && newValue.text[breakEnd - 1] == '\n' &&
+            newValue.text[breakEnd - 2] == '\r'
+        ) breakEnd - 2 else breakEnd - 1
 
-        return continuation(oldValue.text, caret)
+        // Everything after the break must be untouched: an Enter inserts, it never rewrites the
+        // tail of the buffer.
+        if (newValue.text.substring(breakEnd) != oldValue.text.substring(oldCaret)) return null
+
+        val candidateText = newValue.text.removeRange(breakStart, breakEnd)
+        // The IME may also commit an auto-correction with the Enter (the "- mill" → "- milk"
+        // case); that is at most a character or two. Anything bigger is a paste or a sentence
+        // completion, not an Enter, and passes through untouched.
+        val growth = candidateText.length - oldValue.text.length
+        if (growth !in 0..MAXIMUM_COMMIT_GROWTH) return null
+
+        return continuation(candidateText, breakStart)
+    }
+
+    /** `\n`, a CRLF's `\r`, or the Unicode line separator some IMEs send for Enter. */
+    private fun Char.isLineBreak(): Boolean = this == '\n' || this == '\r' || this == '\u2028'
+
+    private companion object {
+        /** Characters an IME may auto-correct while it commits the Enter. */
+        const val MAXIMUM_COMMIT_GROWTH = 2
     }
 }

@@ -17,11 +17,12 @@ import org.junit.Test
  * Pins plan TASK-13 / spec §5.1.c, FR-10, FR-15, FR-16, FR-29, FR-31, FR-32, EC-01, EC-03,
  * EC-16, EC-17, EC-18, EC-22, EC-30:
  *  - the holder is the editor's single source of truth (`TextFieldValue`: text + selection);
- *  - Enter interception fires only for a delta that inserts exactly one `"\n"` at a collapsed
- *    caret, consults the shared [ListContinuation] rule, and applies a non-null
- *    `ContinuationResult` as exactly ONE `TextFieldValue` write with the newline suppressed;
- *  - every other delta — a selection-spanning replacement, a multi-character commit that happens
- *    to contain `"\n"` — passes through without consulting the shared rule at all;
+ *  - Enter interception fires for a line break that lands at a collapsed caret — a plain `"\n"`,
+ *    a CRLF pair, a Unicode separator, or an IME that commits an auto-correction with the break —
+ *    consults the shared [ListContinuation] rule, and applies a non-null `ContinuationResult` as
+ *    exactly ONE `TextFieldValue` write with the newline suppressed;
+ *  - every other delta — a selection-spanning replacement, a commit that grows the line by more
+ *    than a correction — passes through without consulting the shared rule at all;
  *  - indent/outdent apply the shared `LineIndent` result as exactly one write;
  *  - `populate` resets the caret to zero, bumps the scroll-to-top signal and records a snapshot;
  *  - undo/redo restore text and selection as a single write;
@@ -126,6 +127,46 @@ class EditorStateHolderTest {
         assertEquals("1. item\n2. item\n3. ", harness.holder.value.text)
         assertEquals(TextRange(19), harness.holder.value.selection)
         assertEquals(1, harness.continuationInvocations)
+    }
+
+    @Test
+    fun `an autocorrect committed with the newline still continues the list`() {
+        // Samsung's keyboard commits its auto-correction and the Enter in ONE delta, so the
+        // buffer grows by the newline plus the corrected characters instead of exactly one.
+        val harness = Harness()
+        harness.seed("- mill", caret = 6)
+
+        harness.holder.onInput(TextFieldValue("- milk\n", TextRange(7)))
+
+        assertEquals("- milk\n- ", harness.holder.value.text)
+        assertEquals(TextRange(9), harness.holder.value.selection)
+        assertEquals(1, harness.continuationInvocations)
+    }
+
+    @Test
+    fun `a CRLF pair or a unicode separator is a single line break`() {
+        val crlf = Harness()
+        crlf.seed("- item", caret = 6)
+        crlf.holder.onInput(TextFieldValue("- item\r\n", TextRange(8)))
+        assertEquals("- item\n- ", crlf.holder.value.text)
+        assertEquals(TextRange(9), crlf.holder.value.selection)
+
+        val separator = Harness()
+        separator.seed("- item", caret = 6)
+        separator.holder.onInput(TextFieldValue("- item\u2028", TextRange(7)))
+        assertEquals("- item\n- ", separator.holder.value.text)
+        assertEquals(TextRange(9), separator.holder.value.selection)
+    }
+
+    @Test
+    fun `a commit that grows the line beyond a correction is not an Enter`() {
+        val harness = Harness()
+        harness.seed("- milk", caret = 6)
+
+        harness.holder.onInput(TextFieldValue("- milk and more\n", TextRange(15)))
+
+        assertEquals("- milk and more\n", harness.holder.value.text)
+        assertEquals(0, harness.continuationInvocations)
     }
 
     // ── EC-16, EC-17 ─────────────────────────────────────────────────────────
