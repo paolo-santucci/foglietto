@@ -925,6 +925,14 @@ final class ShareExtensionContractTests: XCTestCase {
         let controller = try repository.text("iosApp/ShareExtension/ShareViewController.swift")
         let hostInfo = try repository.propertyList("iosApp/iosApp/Info.plist")
 
+        // Code only: the controller's header documents the absences asserted
+        // below (the legacy selector, UIApplication.shared), and a scan over the
+        // raw text would flag its own documentation.
+        let code = controller
+            .components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+
         // The scheme the extension opens, read out of its own single literal.
         let literal = try XCTUnwrap(
             controller
@@ -959,21 +967,21 @@ final class ShareExtensionContractTests: XCTestCase {
             "the extension must dispatch the current openURL:options:completionHandler: selector"
         )
         XCTAssertFalse(
-            controller.contains("NSSelectorFromString(\"openURL:\")"),
+            code.contains("NSSelectorFromString(\"openURL:\")"),
             "the legacy one-argument openURL: selector is a silent no-op since iOS 18"
         )
         XCTAssertFalse(
-            controller.contains("UIApplication.shared"),
+            code.contains("UIApplication.shared"),
             "UIApplication.shared is unavailable in an app extension — the dispatch must go " +
             "through the responder chain"
         )
 
         let write = try XCTUnwrap(
-            controller.range(of: "ShareInbox().write(payload)"),
+            code.range(of: "ShareInbox().write(payload)"),
             "the extension must write the raw payload to the inbox"
         )
         let launch = try XCTUnwrap(
-            controller.range(of: "openHostApp()"),
+            code.range(of: "openHostApp()"),
             "the extension must attempt the host launch after the write"
         )
         XCTAssertTrue(
