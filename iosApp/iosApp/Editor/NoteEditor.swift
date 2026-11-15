@@ -283,7 +283,7 @@ struct NoteEditor: UIViewRepresentable {
     ///
     /// | Condition | Action | Return |
     /// |-----------|--------|--------|
-    /// | text=="\n" AND range.length==0 AND process!=nil | write result text+caret, mirror VM | false |
+    /// | text=="\n" AND range.length==0 AND process!=nil | undo-grouped minimal replace, reseat caret | false |
     /// | text=="\n" AND range.length==0 AND process==nil | passthrough | true |
     /// | any other edit (non-newline, paste, "\n" with selection) | passthrough | true |
     ///
@@ -325,6 +325,76 @@ struct NoteEditor: UIViewRepresentable {
             (textView as? NoteTextView)?.revealRestoredNote()
         }
 
+        // MARK: Programmatic edits
+
+        /// Applies a programmatic edit as the smallest replacement it really is, in
+        /// one undo group, and re-anchors the selection.
+        ///
+        /// Why not `textView.text = newText`: a wholesale write is invisible to the
+        /// undo manager. Every undo record registered by earlier typing keeps the
+        /// range it was made against, so after a wholesale write those ranges point
+        /// into a text that no longer has them — undoing them reverts the wrong
+        /// characters or raises `NSRangeException`. Replacing only the span that
+        /// differs keeps the stack coherent and makes a continuation or an indent a
+        /// single undoable step, which is also what the user expects Undo to reverse.
+        ///
+        /// The edit is expressed as `old[prefix, oldEnd)` → `new[prefix, newEnd)`,
+        /// where `prefix`/`suffix` are the code units the two texts share. Both
+        /// continuation shapes reduce to one such replacement: the marker insertion
+        /// and the "empty marker ends the list" deletion.
+        ///
+        /// `replace(_:withText:)` is programmatic, so UIKit does not call back into
+        /// `shouldChangeTextIn` — the same property the previous `text =` write relied
+        /// on. If the document positions cannot be resolved (a text view without a
+        /// valid beginning/end), the fallback write drops the undo stack instead of
+        /// leaving it pointing at the old text.
+        private func replaceMinimalChange(
+            in textView: UITextView,
+            to newText: String,
+            selection: NSRange
+        ) {
+            let old = (textView.text ?? "") as NSString
+            let new = newText as NSString
+            let oldLength = old.length
+            let newLength = new.length
+
+            var prefix = 0
+            while prefix < oldLength, prefix < newLength,
+                  old.character(at: prefix) == new.character(at: prefix) {
+                prefix += 1
+            }
+            var suffix = 0
+            while suffix < oldLength - prefix, suffix < newLength - prefix,
+                  old.character(at: oldLength - 1 - suffix) == new.character(at: newLength - 1 - suffix) {
+                suffix += 1
+            }
+
+            let changedRange = NSRange(location: prefix, length: oldLength - prefix - suffix)
+            let replacement = new.substring(
+                with: NSRange(location: prefix, length: newLength - prefix - suffix)
+            )
+
+            let start = textView.position(from: textView.beginningOfDocument, offset: changedRange.location)
+            let end = start.flatMap {
+                textView.position(from: $0, offset: changedRange.length)
+            }
+            if let start, let end, let textRange = textView.textRange(from: start, to: end) {
+                let undo = textView.undoManager
+                undo?.beginUndoGrouping()
+                textView.replace(textRange, withText: replacement)
+                undo?.endUndoGrouping()
+            } else {
+                textView.text = newText
+                textView.undoManager?.removeAllActions()
+            }
+
+            let location = TextOffsetBridge.clamp(selection.location, length: newLength)
+            textView.selectedRange = NSRange(
+                location: location,
+                length: TextOffsetBridge.clamp(selection.length, length: newLength - location)
+            )
+        }
+
         // MARK: Action hooks (dispatched by BottomToolbar)
 
         /// Copy the buffer text to the system pasteboard (FR-16).
@@ -346,11 +416,18 @@ struct NoteEditor: UIViewRepresentable {
             if let textRange = tv.selectedTextRange {
                 tv.replace(textRange, withText: paste)
             } else {
-                let mutable = NSMutableString(string: tv.text ?? "")
-                mutable.replaceCharacters(in: range, with: paste)
-                tv.text = mutable as String
-                let newLocation = range.location + (paste as NSString).length
-                tv.selectedRange = NSRange(location: newLocation, length: 0)
+                // No live selection range: resolve a CLAMPED range through document
+                // positions and replace through UIKit, which keeps undo coherent. The
+                // previous NSMutableString + `text =` path could raise NSRangeException
+                // on a stale range and left the undo stack pointing at the old text.
+                let length = (tv.text as NSString).length
+                let location = TextOffsetBridge.clamp(range.location, length: length)
+                let replaceLength = TextOffsetBridge.clamp(range.length, length: length - location)
+                if let start = tv.position(from: tv.beginningOfDocument, offset: location),
+                   let end = tv.position(from: start, offset: replaceLength),
+                   let textRange = tv.textRange(from: start, to: end) {
+                    tv.replace(textRange, withText: paste)
+                }
             }
             viewModel.updateText(tv.text ?? "")
             mirrorUndoState()
@@ -384,15 +461,17 @@ struct NoteEditor: UIViewRepresentable {
 
         /// Assign the indent/outdent result back to the live text view (FR-17).
         ///
-        /// Sets `textView.text` and `textView.selectedRange`. No-op after teardown (EC-13).
+        /// Sets the selection and applies only the span that actually changed, inside
+        /// one undo group — the same reason `replaceMinimalChange` exists: a
+        /// wholesale `text =` write leaves older undo records pointing at ranges of a
+        /// text that no longer exists. No-op after teardown (EC-13).
         ///
         /// - Parameters:
         ///   - text:  The new full buffer text returned by `viewModel.indent`/`outdent`.
         ///   - range: The new selection returned by the same call (UTF-16 NSRange).
         func applyIndentResult(text: String, range: NSRange) {
             guard let tv = textView else { return }
-            tv.text = text
-            tv.selectedRange = range
+            replaceMinimalChange(in: tv, to: text, selection: range)
             mirrorUndoState()
             (tv as? NoteTextView)?.clampIdleOffset()
         }
@@ -445,14 +524,24 @@ struct NoteEditor: UIViewRepresentable {
                     fullText: textView.text,
                     caretOffset: Int32(caret)
                 ) {
-                    textView.text = result.text
-
-                    textView.selectedRange = TextOffsetBridge.collapsedRange(
-                        at: Int(result.caret),
-                        in: textView.text as NSString
+                    // One minimal, undo-grouped replacement instead of a wholesale
+                    // write, so Undo reverses exactly this continuation and earlier
+                    // undo records keep pointing at ranges that still exist.
+                    replaceMinimalChange(
+                        in: textView,
+                        to: result.text,
+                        selection: TextOffsetBridge.collapsedRange(
+                            at: Int(result.caret),
+                            in: result.text as NSString
+                        )
                     )
 
-                    viewModel.updateText(result.text)
+                    // Mirror unless the editor already did: `replace` drives the text
+                    // input system, so `textViewDidChange` normally mirrors for us. The
+                    // guard keeps the mirror exactly-once (EC-03) either way.
+                    if viewModel.text != textView.text {
+                        viewModel.updateText(textView.text ?? "")
+                    }
 
                     return false
                 }
@@ -468,8 +557,10 @@ struct NoteEditor: UIViewRepresentable {
         /// Mirror committed text into the `NoteViewModel` after every UIKit-applied edit
         /// (FR-13), and re-mirror the undo-ability state for the Undo circle's visibility.
         ///
-        /// The continuation branch (which returns `false`) mirrors inside
-        /// `shouldChangeTextIn` instead, because `textViewDidChange` never runs for it.
+        /// The continuation branch returns `false` and applies its edit through
+        /// `replace(_:withText:)`, which runs through the text input system: this
+        /// callback therefore fires for a continuation too, and the hook's own mirror
+        /// is guarded so the model is written exactly once (EC-03).
         func textViewDidChange(_ textView: UITextView) {
             viewModel.updateText(textView.text)
             mirrorUndoState()

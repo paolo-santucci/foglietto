@@ -579,6 +579,78 @@ final class NoteEditorCoordinatorM4Tests: XCTestCase {
     }
 
     // -----------------------------------------------------------------------
+    // MARK: - Programmatic edits stay undoable (undo-range coherence)
+    // -----------------------------------------------------------------------
+
+    /// A continuation must be ONE undoable step that reverses exactly itself.
+    ///
+    /// The previous implementation assigned `textView.text`, which the undo manager
+    /// never sees: the continuation could not be undone, and every older record kept
+    /// pointing at a range of a text that had already changed.
+    func test_continuation_insertion_isASingleUndoableStep() {
+        let vm = NoteViewModel(settings: StubSettingsRepository())
+        let (tv, coord, _) = makeMountedCoordinator(viewModel: vm)
+
+        tv.text = "1. one"
+        tv.undoManager?.removeAllActions()
+        let range = NSRange(location: (tv.text as NSString).length, length: 0)
+
+        XCTAssertFalse(coord.textView(tv, shouldChangeTextIn: range, replacementText: "\n"))
+        XCTAssertEqual(tv.text, "1. one\n2. ")
+
+        XCTAssertTrue(tv.undoManager?.canUndo ?? false,
+            "a continuation must register an undoable edit, not a wholesale text write")
+
+        coord.undo()
+
+        XCTAssertEqual(tv.text, "1. one",
+            "Undo after a continuation must restore the buffer the continuation produced from")
+        XCTAssertEqual(vm.text, tv.text,
+            "the reverted text must be mirrored into the view model")
+    }
+
+    /// The terminating shape DELETES the dangling marker — the case that used to
+    /// leave earlier undo records pointing past the end of a now-shorter text.
+    func test_continuation_termination_isASingleUndoableStep() {
+        let vm = NoteViewModel(settings: StubSettingsRepository())
+        let (tv, coord, _) = makeMountedCoordinator(viewModel: vm)
+
+        tv.text = "- a\n- "
+        tv.undoManager?.removeAllActions()
+        let range = NSRange(location: (tv.text as NSString).length, length: 0)
+
+        XCTAssertFalse(coord.textView(tv, shouldChangeTextIn: range, replacementText: "\n"))
+        XCTAssertEqual(tv.text, "- a\n", "the dangling marker is removed (EC-04)")
+
+        coord.undo()
+
+        XCTAssertEqual(tv.text, "- a\n- ",
+            "Undo must restore the deleted marker — the buffer shrank, so any undo "
+            "record addressing the old length would now be out of range")
+    }
+
+    /// Indent/outdent reaches the text view through the same minimal replacement, so
+    /// Undo reverses exactly the indent instead of reverting an unrelated range.
+    func test_applyIndentResult_isASingleUndoableStep() {
+        let vm = NoteViewModel(settings: StubSettingsRepository())
+        let (tv, coord, _) = makeMountedCoordinator(viewModel: vm)
+
+        tv.text = "one\ntwo"
+        tv.undoManager?.removeAllActions()
+
+        coord.applyIndentResult(text: "\tone\ntwo", range: NSRange(location: 1, length: 0))
+
+        XCTAssertEqual(tv.text, "\tone\ntwo")
+        XCTAssertEqual(tv.selectedRange, NSRange(location: 1, length: 0),
+            "the caret follows the inserted unit")
+
+        coord.undo()
+
+        XCTAssertEqual(tv.text, "one\ntwo",
+            "Undo after an indent must restore the un-indented buffer")
+    }
+
+    // -----------------------------------------------------------------------
     // MARK: - Undo-ability mirror (Undo circle visible only when undoable)
 
     /// The mirror reports `false` on an empty undo stack — the Undo circle
