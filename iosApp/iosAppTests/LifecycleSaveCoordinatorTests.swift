@@ -27,8 +27,15 @@
 //
 // Spec refs: FR-14, NFR-01; QP §3.1 / T-01 "Failing test first" block.
 // CI-verified on macos-26 iOS Simulator — not locally compilable (no macOS host).
+//
+// sp-20261114 TASK-04 additions: `saveCurrentBuffer()` is the ONE trim-guarded
+// save path (the inbound drain's collision save). onBackground() / onTerminate()
+// must delegate to it (D6), the path is burst-guard-free, and the failure contract
+// (FR-07 / EC-11: no `catch`, no async hop) is asserted by reading the
+// coordinator's own source through `#filePath` — no bundle, no device, no App Group.
 
 import XCTest
+import Foundation
 import shared
 @testable import iosApp
 
@@ -222,5 +229,201 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
 
         XCTAssertEqual(spy.saveCalls, ["hello", "b"],
             "onTerminate() must save unguarded — guard from prior onBackground() must not block it (R-11)")
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - saveCurrentBuffer() — non-blank save + trim(10) (FR-06 / D6)
+    // -----------------------------------------------------------------------
+
+    /// The drain's one save call: the RAW provider text reaches SaveNoteToRecovery
+    /// exactly once, trim(keep: 10) follows it, and the written path comes back.
+    func test_saveCurrentBuffer_nonBlank_savesOnce_withTrim10_andReturnsPath() {
+        let (spy, coordinator) = makeCoordinator(textProvider: { "draft" })
+
+        let path = coordinator.saveCurrentBuffer()
+
+        XCTAssertEqual(spy.saveCalls, ["draft"],
+            "saveCurrentBuffer() must pass the raw provider text to SaveNoteToRecovery exactly once (FR-06)")
+        XCTAssertEqual(spy.trimCalls, [Int32(10)],
+            "saveCurrentBuffer() must call trim(keep: 10) once after the save — the same guard " +
+            "onBackground() uses (FR-06 / D6)")
+        XCTAssertEqual(path, "/recovery/1.txt",
+            "saveCurrentBuffer() must return the path reported by the repository, not nil (FR-06)")
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - saveCurrentBuffer() — blank buffer, zero repository calls (EC-12)
+    // -----------------------------------------------------------------------
+
+    /// Whitespace-only buffer: the shared trim guard suppresses the save, so the
+    /// repository records zero writes and the method returns nil.
+    func test_saveCurrentBuffer_whitespaceOnly_returnsNil_zeroRepoCalls() {
+        let (spy, coordinator) = makeCoordinator(textProvider: { "   " })
+
+        let path = coordinator.saveCurrentBuffer()
+
+        XCTAssertNil(path,
+            "saveCurrentBuffer() must return nil for a whitespace-only buffer (EC-12)")
+        XCTAssertTrue(spy.saveCalls.isEmpty,
+            "saveCurrentBuffer() must make zero save calls for a whitespace-only buffer — " +
+            "the trim guard must not be bypassed (EC-12)")
+        XCTAssertTrue(spy.trimCalls.isEmpty,
+            "saveCurrentBuffer() must make zero trim calls for a whitespace-only buffer (EC-12)")
+    }
+
+    /// Empty buffer: same contract as the whitespace case.
+    func test_saveCurrentBuffer_empty_returnsNil_zeroRepoCalls() {
+        let (spy, coordinator) = makeCoordinator(textProvider: { "" })
+
+        let path = coordinator.saveCurrentBuffer()
+
+        XCTAssertNil(path,
+            "saveCurrentBuffer() must return nil for an empty buffer (EC-12)")
+        XCTAssertTrue(spy.saveCalls.isEmpty,
+            "saveCurrentBuffer() must make zero save calls for an empty buffer (EC-12)")
+        XCTAssertTrue(spy.trimCalls.isEmpty,
+            "saveCurrentBuffer() must make zero trim calls for an empty buffer (EC-12)")
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - Delegation: one save code path (D6)
+    // -----------------------------------------------------------------------
+
+    /// onBackground() must produce exactly one save through saveCurrentBuffer().
+    /// The assertion is count-based: a second (duplicated) call site inside the
+    /// seam would make saveCalls.count == 2 and fail here.
+    func test_onBackground_savesOnceThroughTheSharedPath() {
+        let (spy, coordinator) = makeCoordinator(textProvider: { "episode" })
+
+        coordinator.onBackground()
+
+        XCTAssertEqual(spy.saveCalls, ["episode"],
+            "onBackground() must save exactly once through saveCurrentBuffer() (D6)")
+        XCTAssertEqual(spy.trimCalls, [Int32(10)],
+            "onBackground() must apply trim(keep: 10) exactly once through the shared path (D6)")
+    }
+
+    /// onTerminate() must produce exactly one save through saveCurrentBuffer(),
+    /// and it stays unguarded (no prior onBackground() in this test, so a stray
+    /// count of 0 or 2 would be caught).
+    func test_onTerminate_savesOnceThroughTheSharedPath() {
+        let (spy, coordinator) = makeCoordinator(textProvider: { "episode" })
+
+        coordinator.onTerminate()
+
+        XCTAssertEqual(spy.saveCalls, ["episode"],
+            "onTerminate() must save exactly once through saveCurrentBuffer() (D6)")
+        XCTAssertEqual(spy.trimCalls, [Int32(10)],
+            "onTerminate() must apply trim(keep: 10) exactly once through the shared path (D6)")
+    }
+
+    /// D6: the collision save is burst-guard-FREE, so a saveCurrentBuffer() call
+    /// between .active and .background() neither arms nor consumes the episode
+    /// guard: the subsequent onBackground() still saves, giving exactly 2 writes.
+    func test_saveCurrentBuffer_betweenActiveAndBackground_neitherSuppressesNorDuplicates() {
+        var currentText = "old"
+        let (spy, coordinator) = makeCoordinator(textProvider: { currentText })
+
+        coordinator.onActive()                 // resets the buffer, clears the guard
+        currentText = "draft to rescue"
+        _ = coordinator.saveCurrentBuffer()    // collision save → 1st repository write
+        currentText = "edited draft"
+        coordinator.onBackground()             // episode save must still happen → 2nd write
+
+        XCTAssertEqual(spy.saveCalls, ["draft to rescue", "edited draft"],
+            "a collision save must neither suppress nor duplicate the episode save — " +
+            "exactly 2 writes, each with the text current at that moment (D6 / FR-06)")
+        XCTAssertEqual(spy.trimCalls, [Int32(10), Int32(10)],
+            "both writes go through the shared trim(10) path exactly once each (D6)")
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - Failure path + synchrony — source inspection (FR-07 / NFR-01)
+    // -----------------------------------------------------------------------
+
+    /// FR-07 / EC-11: a Kotlin exception must terminate the process before the
+    /// inbound seed, so this file may contain no `catch` at all, and no
+    /// async-introducing construct, so the write is complete when the call returns.
+    /// D6 adds: exactly one save site, and both lifecycle seams delegate to it.
+    func test_source_noCatch_noAsyncConstructs_singleSavePath() throws {
+        let codeLines = try coordinatorCodeLines()
+        let code = codeLines.joined(separator: "\n")
+
+        XCTAssertFalse(code.contains("catch"),
+            "LifecycleSaveCoordinator.swift must contain no 'catch' — a Kotlin failure " +
+            "must propagate unchanged and terminate the process before the seed (FR-07 / EC-11)")
+
+        for token in ["Task", "DispatchQueue", "async", "await"] {
+            XCTAssertEqual(wordOccurrences(of: token, in: code), 0,
+                "LifecycleSaveCoordinator.swift must contain zero '\(token)' occurrences " +
+                "outside comments — the save path is synchronous (NFR-01)")
+        }
+
+        let saveSites = codeLines.filter { $0.contains("saveUseCase.invoke(") }
+        XCTAssertEqual(saveSites.count, 1,
+            "exactly one save code path must exist: one 'saveUseCase.invoke(' call site (D6)")
+
+        let delegationSites = codeLines.filter {
+            $0.contains("saveCurrentBuffer()") && !$0.contains("func saveCurrentBuffer(")
+        }
+        XCTAssertEqual(delegationSites.count, 2,
+            "onBackground() and onTerminate() must both delegate to saveCurrentBuffer() — " +
+            "exactly 2 call sites, no other save entry point (D6)")
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - Source inspection helpers
+    // -----------------------------------------------------------------------
+
+    /// Non-comment lines of `iosApp/iosApp/LifecycleSaveCoordinator.swift`,
+    /// resolved from this test file's own compile-time `#filePath` (the
+    /// `ShareExtensionContractTests` technique) — no bundle resource needed.
+    private func coordinatorCodeLines() throws -> [String] {
+        // `#filePath` is absolute for Xcode builds of this target; the extra
+        // candidates only cover a toolchain that emits a repo-relative path.
+        let testFileDirectory = URL(filePath: #filePath).deletingLastPathComponent()
+        let iosAppDirectory = testFileDirectory.deletingLastPathComponent()
+        let repositoryRoot = iosAppDirectory.deletingLastPathComponent()
+        let relativeSource = "iosApp/iosApp/LifecycleSaveCoordinator.swift"
+
+        let candidates = [
+            iosAppDirectory.appending(path: "iosApp/LifecycleSaveCoordinator.swift"),
+            repositoryRoot.appending(path: relativeSource),
+            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: relativeSource)
+        ]
+
+        let existingCandidate = candidates.first { FileManager.default.fileExists(atPath: $0.path) }
+        guard let sourceURL = existingCandidate else {
+            throw SourceInspectionError.coordinatorSourceNotFound(paths: candidates.map(\.path))
+        }
+
+        let data = try Data(contentsOf: sourceURL)
+        let source = String(decoding: data, as: UTF8.self)
+        return source
+            .components(separatedBy: .newlines)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    }
+
+    /// Counts whole-word occurrences of `token`, so `beginBackgroundTask` /
+    /// `endBackgroundTask` never match `Task`.
+    private func wordOccurrences(of token: String, in code: String) -> Int {
+        code
+            .split { !($0.isLetter || $0.isNumber || $0 == "_") }
+            .filter { String($0) == token }
+            .count
+    }
+
+    /// Raised when the coordinator source cannot be located from `#filePath`;
+    /// failing the test (not skipping) keeps the FR-07 / D6 assertions honest.
+    private enum SourceInspectionError: Error, CustomStringConvertible {
+        case coordinatorSourceNotFound(paths: [String])
+
+        var description: String {
+            switch self {
+            case let .coordinatorSourceNotFound(paths):
+                return "LifecycleSaveCoordinator.swift not found from #filePath. "
+                    + "Tried: \(paths.joined(separator: ", "))"
+            }
+        }
     }
 }

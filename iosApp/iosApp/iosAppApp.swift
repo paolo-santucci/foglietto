@@ -25,6 +25,15 @@
 //   and the already-constructed `viewModel`.  The scene-phase `.onChange` lives
 //   in ContentView; `applicationWillTerminate` is forwarded via AppDelegate (R-11,
 //   best-effort).  No new factory call is introduced (m4_gate check 4).
+//
+// Inbound cold-start seed (§4.3 cold start / FR-16 / FR-18 / FR-20 / NFR-01):
+//   After the coordinator local exists, `init()` runs ONE synchronous drain
+//   through `ColdStartSeeder` and stores the resulting `ShareInboxDrainer` in
+//   `drainer`.  Because `init()` completes before `body` is evaluated, the first
+//   `NoteEditor.updateUIView` already sees the seeded `viewModel.text` and a
+//   `populationRevision` of 1 — there is no empty first frame (D4 / EC-19).
+//   The same instance is what the warm `.active` path reuses (§5.1.5), so the
+//   ordering can never diverge between cold start and warm activation.
 
 import SwiftUI
 import shared
@@ -102,6 +111,19 @@ struct iosAppApp: App {
     /// read and write the identical object.
     @State private var lifecycle: LifecycleSaveCoordinator
 
+    /// The inbound drain seam (FR-16 cold start / FR-17 warm) — EXACTLY ONE
+    /// instance per launch, built and drained by `ColdStartSeeder` inside `init()`.
+    ///
+    /// `@State`, not `let`, so the value has a single SwiftUI-owned identity for the
+    /// whole session and is never rebuilt by a re-evaluated `body`.  It is written
+    /// once (in `init()`) and read twice: the cold-start drain already ran before
+    /// the store, and `body` hands this SAME instance to `ContentView` for the warm
+    /// `.active` path.  Never mutated after launch — one drainer, two call sites.
+    ///
+    /// `init(viewModel:recovery:lifecycle:)` of `ContentView` is not yet extended
+    /// here: the warm call site is added when `ContentView` accepts the drainer.
+    @State private var drainer: ShareInboxDrainer
+
     // MARK: - Composition-root init (CM-1 single-instance DI)
 
     /// Constructs exactly one SettingsRepository and exactly one RecoveryRepository,
@@ -127,10 +149,22 @@ struct iosAppApp: App {
         // already-constructed vm reference.  The coordinator pulls text via the
         // textProvider closure and resets via resetNote — NO save logic in the VM
         // (FR-12 / m4_gate check 5).  No new factory call (m4_gate check 4).
-        _lifecycle = State(wrappedValue: LifecycleSaveCoordinator(
+        let lifecycleCoordinator = LifecycleSaveCoordinator(
             recovery: recoveryRepo,
             textProvider: { vm.text },
             resetNote: { vm.populate($0) }
+        )
+        _lifecycle = State(wrappedValue: lifecycleCoordinator)
+
+        // §4.3 cold start: ONE synchronous drain, here in init(), so the buffer is
+        // already seeded when `body` is first evaluated.  Extracted rather than
+        // inlined: this initialiser is at its size limit, and the seed ordering is
+        // a contract under test (ColdStartSeederTests).  The drainer it returns is
+        // the same instance the warm `.active` path must reuse (§5.1.5).
+        _drainer = State(wrappedValue: ColdStartSeeder.seed(
+            inbox: ShareInbox(),
+            lifecycle: lifecycleCoordinator,
+            viewModel: vm
         ))
     }
 
@@ -150,7 +184,8 @@ struct iosAppApp: App {
             ContentView(
                 viewModel: viewModel,
                 recovery: recovery,
-                lifecycle: lifecycle
+                lifecycle: lifecycle,
+                drainer: drainer
             )
             // Wire appDelegate.onTerminate exactly once (guard == nil).
             // This is the earliest reliable site: @State is resolved before body
@@ -168,5 +203,59 @@ struct iosAppApp: App {
                 }
             }
         }
+    }
+}
+
+// MARK: - Cold-start seed (§4.3 cold start / FR-16, FR-18, FR-20, NFR-01)
+
+/// Seeds the editor from the App Group inbox exactly once, inside `init()`.
+///
+/// Spec refs: FR-16, FR-05, FR-08, FR-18, FR-20, NFR-01; §4.3 cold start,
+/// §5.1.3 call sites, D4, EC-19.
+///
+/// `seed(inbox:lifecycle:viewModel:)` builds the ONE `ShareInboxDrainer` from the
+/// production closures only — the shared normalization rule, the single
+/// trim-guarded save path, and `NoteViewModel.populate` — then calls `drain()`
+/// once and returns that same instance. `iosAppApp` stores it in `drainer`, so the
+/// warm `.active` path (`ContentView.dispatchScenePhase`) reuses it instead of
+/// building a second one: one drainer, two call sites, no ordering divergence.
+///
+/// Why a helper and not four inline lines: `iosAppApp.init()` is already at its
+/// size limit, and the five ordered steps (read → normalize → save → populate →
+/// clear) are the contract the cold-start cases pin.
+///
+/// Sequencing (NFR-01): every effect completes before `seed` returns, so the seed
+/// is complete before `body` can be evaluated and the first rendered frame already
+/// shows the inbound text (EC-19). No concurrency hop of any kind.
+///
+/// `@MainActor`: `ShareInboxDrainer` is main-actor isolated and both call sites —
+/// the composition root and `.onChange(of: scenePhase)` — are on the main actor.
+@MainActor
+enum ColdStartSeeder {
+
+    /// Builds the drainer, drains once, and hands the instance back.
+    ///
+    /// - Parameters:
+    ///   - inbox: the App Group inbox shared with the Share Extension. Tests inject
+    ///     `ShareInbox(containerURL:)`, so no case touches the real App Group.
+    ///   - lifecycle: the single save coordinator. Its collision save is a
+    ///     trim-guarded no-op on the empty cold-start buffer (FR-06, D4).
+    ///   - viewModel: the single editor model. `populate` carries the seed and bumps
+    ///     `populationRevision`, which is what makes the first `reconcileText`
+    ///     reveal the top of the document (EC-19).
+    /// - Returns: the drainer the warm activation path must reuse.
+    static func seed(
+        inbox: ShareInbox,
+        lifecycle: LifecycleSaveCoordinator,
+        viewModel: NoteViewModel
+    ) -> ShareInboxDrainer {
+        let drainer = ShareInboxDrainer(
+            inbox: inbox,
+            normalize: { IncomingTextKt.acceptIncomingText(raw: $0) },
+            saveCurrentBuffer: { _ = lifecycle.saveCurrentBuffer() },
+            populate: { viewModel.populate($0) }
+        )
+        drainer.drain()
+        return drainer
     }
 }

@@ -19,6 +19,11 @@
 //   - The save delegates to the shared `SaveNoteToRecovery` use case, which
 //     trim-guards empty/whitespace (zero repo calls) and on non-empty calls
 //     save(raw) then trim(10). Synchronous; returns String?.
+//   - ONE save code path (D6 / sp-20261114): `saveCurrentBuffer()` is the only
+//     place that calls the use case; `onBackground()` and `onTerminate()`
+//     delegate to it, and the inbound drain calls it directly for the
+//     collision save. No `catch` anywhere, so a Kotlin failure propagates and
+//     the process dies before the inbound seed (FR-07 / EC-11).
 //
 // Burst guard (QP §Integration constraints):
 //   A per-session `Bool` "saved this background episode" flag prevents a
@@ -92,6 +97,28 @@ final class LifecycleSaveCoordinator {
 
     // MARK: - Lifecycle seam (callable directly from tests)
 
+    /// The single, trim-guarded, synchronous save path (D6).
+    ///
+    /// Reads the buffer through `textProvider`, hands the RAW text to the shared
+    /// `SaveNoteToRecovery` use case, and returns the written recovery path — or
+    /// `nil` when the use case's trim guard suppressed a blank/whitespace buffer
+    /// (zero repository calls, EC-12).
+    ///
+    /// Callers: `onBackground()`, `onTerminate()`, and the inbound drain's
+    /// collision save. Deliberately burst-guard-FREE: the episode guard belongs to
+    /// `onBackground()` alone, so a drain save neither arms nor consumes it.
+    ///
+    /// There is intentionally no `catch`: a Kotlin exception must propagate and
+    /// terminate the process before the inbound seed runs (FR-07 / EC-11), and no
+    /// `Task` / `DispatchQueue` hop: the write is complete when this returns
+    /// (NFR-01).
+    ///
+    /// - Returns: the recovery path, or `nil` for a blank/whitespace buffer.
+    @discardableResult
+    func saveCurrentBuffer() -> String? {
+        saveUseCase.invoke(text: textProvider())
+    }
+
     /// ScenePhase `.background`. Performs the burst-guarded SYNCHRONOUS save,
     /// wrapped in beginBackgroundTask / endBackgroundTask. No async / Task.
     /// Empty/whitespace text makes zero repo calls (trim-guarded by the use
@@ -112,11 +139,12 @@ final class LifecycleSaveCoordinator {
             UIApplication.shared.endBackgroundTask(bgTask)
         }
 
-        // Synchronous save via the shared use case.
-        // SaveNoteToRecovery.invoke(text:) trim-guards empty/whitespace (zero
-        // repo calls) and on non-empty calls save(raw) then trim(10). No Task,
-        // no DispatchQueue, no async, no await anywhere in this path (C-02).
-        _ = saveUseCase.invoke(text: textProvider())
+        // Synchronous save through the ONE shared save path (D6).
+        // saveCurrentBuffer() → SaveNoteToRecovery.invoke(text:) trim-guards
+        // empty/whitespace (zero repo calls) and on non-empty calls save(raw)
+        // then trim(10). No Task, no DispatchQueue, no async, no await anywhere
+        // in this path (C-02).
+        _ = saveCurrentBuffer()
 
         // Release the background time budget.
         UIApplication.shared.endBackgroundTask(bgTask)
@@ -139,12 +167,13 @@ final class LifecycleSaveCoordinator {
     }
 
     /// `applicationWillTerminate` best-effort save (R-11: unreliable, documented).
-    /// Same synchronous save core; no test asserts it fires under real termination.
+    /// Same shared save path (`saveCurrentBuffer()`); no test asserts it fires
+    /// under real termination.
     func onTerminate() {
         // Unguarded: savedThisEpisode is deliberately NOT checked here (R-11).
         // The OS may have already called .background before termination; this is
         // a best-effort duplicate-safe write (SaveNoteToRecovery is idempotent
         // for the same text, and trim(10) is a no-op when already at capacity).
-        _ = saveUseCase.invoke(text: textProvider())
+        _ = saveCurrentBuffer()
     }
 }

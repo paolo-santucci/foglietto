@@ -19,10 +19,19 @@
 // Spec refs: FR-02, FR-03, FR-04, FR-05, FR-06, FR-13, FR-14, FR-15, FR-16, FR-17,
 //            FR-19; §5.1.d/§5.1.e decision table;
 //            §6.1 EC-03/EC-04/EC-05/EC-12/EC-13; M4 §7.1 Coordinator section.
+//
+// Extended by TASK-10 (sp-20261114-share-sheet-inbound-text) with the cold-start
+// seed cases: `ColdStartSeedTests` drives `ColdStartSeeder.seed(inbox:lifecycle:
+// viewModel:)` — the extracted composition-root helper — over an injected inbox,
+// and then the FIRST `reconcileText` on a window-attached `NoteTextView`
+// (FR-16, FR-05, FR-08, FR-18, FR-20, NFR-01; §4.3 cold start, §7.2 lines 882-886,
+// D4, EC-19).
+//
 // Verification: CI-only (macos-26 / iOS Simulator). No local Swift compile available.
 
 import XCTest
 import UIKit
+import Foundation
 @testable import iosApp
 import shared
 
@@ -650,5 +659,333 @@ final class NoteEditorCoordinatorM4Tests: XCTestCase {
         coord.applyIndentResult(text: "x", range: NSRange(location: 0, length: 0))
 
         XCTAssertTrue(true, "all action hooks must be nil-safe when textView is nil (EC-13 / FR-06)")
+    }
+}
+
+// ---------------------------------------------------------------------------
+// MARK: - Cold-start seed (TASK-10: FR-16, FR-05, FR-08, FR-18, FR-20, NFR-01)
+// ---------------------------------------------------------------------------
+
+/// Mounts the REAL editor subclass (`NoteEditor.NoteTextView`) in a window.
+///
+/// `makeMountedCoordinator` mounts a plain `UITextView`, which the coordinator's
+/// population branch skips: `reconcileText` only reveals the top when the view is a
+/// `NoteTextView`. The cold-start viewport assertion therefore needs the subclass;
+/// everything else mirrors that helper (direct `textView` assignment = what
+/// `makeUIView` does, plus a lightweight `UIWindow` mount).
+@MainActor
+private func makeMountedNoteTextView(
+    viewModel: NoteViewModel
+) -> (NoteEditor.NoteTextView, NoteEditor.Coordinator, UIWindow) {
+    let textView = NoteEditor.NoteTextView(frame: CGRect(x: 0, y: 0, width: 320, height: 480))
+    textView.contentInsetAdjustmentBehavior = .automatic
+
+    let editor = NoteEditor(viewModel: viewModel)
+    let coordinator = editor.makeCoordinator()
+    textView.delegate = coordinator
+    coordinator.textView = textView
+
+    let window = UIWindow(frame: UIScreen.main.bounds)
+    window.rootViewController = UIViewController()
+    window.rootViewController?.view.addSubview(textView)
+    window.makeKeyAndVisible()
+    window.layoutIfNeeded()
+
+    return (textView, coordinator, window)
+}
+
+/// Cold-start seed cases (§7.2 "iOS — cold-start composition", EC-19).
+///
+/// The SwiftUI `App` itself is not constructible in XCTest (OQ-25), so the cases
+/// drive the EXTRACTED helper the composition root calls — same production
+/// closures, same ordering, same single instance — over an injected
+/// `ShareInbox(containerURL:)` and a spy `RecoveryRepository`. Zero App Group I/O.
+///
+/// `@MainActor`: `ColdStartSeeder`, `ShareInboxDrainer` and
+/// `LifecycleSaveCoordinator` are main-actor isolated.
+@MainActor
+final class ColdStartSeedTests: XCTestCase {
+
+    // -----------------------------------------------------------------------
+    // MARK: - Harness
+    // -----------------------------------------------------------------------
+
+    /// Builds the composition `iosAppApp.init()` builds and runs the seed once.
+    ///
+    /// - Parameter payload: what the "extension" left in the inbox (nil = nothing
+    ///   pending, the FR-20 empty-inbox case).
+    /// - Returns: the seeded model, the recovery spy, the draining inbox, the
+    ///   drainer the root stores for the warm path, and the throwaway container.
+    private func seedFromInbox(
+        payload: String?
+    ) -> (
+        viewModel: NoteViewModel,
+        recovery: ClearEditorRecoverySpy,
+        inbox: ShareInbox,
+        drainer: ShareInboxDrainer,
+        container: URL
+    ) {
+        let container = FileManager.default.temporaryDirectory
+            .appending(path: "ColdStartSeedTests-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let inbox = ShareInbox(containerURL: container)
+        if let payload {
+            XCTAssertTrue(
+                inbox.write(payload),
+                "Precondition: the Share Extension wrote the raw payload into the inbox"
+            )
+        }
+
+        let viewModel = NoteViewModel(settings: StubSettingsRepository())
+        let recovery = ClearEditorRecoverySpy()
+        let lifecycle = LifecycleSaveCoordinator(
+            recovery: recovery,
+            textProvider: { viewModel.text },
+            resetNote: { viewModel.populate($0) }
+        )
+
+        let drainer = ColdStartSeeder.seed(inbox: inbox, lifecycle: lifecycle, viewModel: viewModel)
+        return (viewModel, recovery, inbox, drainer, container)
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - Pending payload: seeded before any view exists (FR-16, D4, EC-19)
+    // -----------------------------------------------------------------------
+
+    /// The helper seeds `viewModel.text` inside `init()` — before `body`, and so
+    /// before any `updateUIView` — with zero saves (the cold-start buffer is empty).
+    func testColdStartWithPendingPayloadSeedsTheBufferBeforeAnyViewExists() {
+        let seeded = seedFromInbox(payload: "hello")
+        defer { try? FileManager.default.removeItem(at: seeded.container) }
+
+        // No view object has been created at this point.
+        XCTAssertEqual(
+            seeded.viewModel.text,
+            "hello",
+            "the cold-start drain must seed the buffer inside init(), before the first frame (FR-16, D4, EC-19)"
+        )
+        XCTAssertEqual(
+            seeded.viewModel.populationRevision,
+            1,
+            "populate runs exactly once, so the first reconcileText sees revision 1 (EC-19)"
+        )
+        XCTAssertTrue(
+            seeded.recovery.savedTexts.isEmpty,
+            "the collision save is a trim-guarded no-op on the empty cold-start buffer (FR-06, D4)"
+        )
+        XCTAssertTrue(
+            seeded.recovery.trimLimits.isEmpty,
+            "no trim runs either — the save use case is not bypassed but makes zero repository calls"
+        )
+        XCTAssertNil(
+            seeded.inbox.read(),
+            "the inbox entry is deleted only after a successful seed, then not replayed (FR-19)"
+        )
+    }
+
+    /// The first `updateUIView` leg on a window-attached editor applies the seeded
+    /// text, collapses the caret at (0,0) and reveals the top of the viewport.
+    func testFirstReconcileTextAppliesSeededTextAndRevealsTheTop() {
+        let seeded = seedFromInbox(payload: "hello")
+        defer { try? FileManager.default.removeItem(at: seeded.container) }
+
+        let (textView, coordinator, window) = makeMountedNoteTextView(viewModel: seeded.viewModel)
+        defer { window.isHidden = true }
+
+        XCTAssertEqual(
+            seeded.viewModel.populationRevision,
+            1,
+            "Precondition: the seed landed before the editor existed, moving 0 → 1 (EC-19)"
+        )
+
+        coordinator.reconcileText(in: textView)
+
+        XCTAssertEqual(
+            textView.text,
+            "hello",
+            "the first updateUIView leg renders the seeded text (FR-16)"
+        )
+        XCTAssertEqual(
+            textView.selectedRange,
+            NSRange(location: 0, length: 0),
+            "an explicit population collapses the caret at the document start (EC-19, canon §3 editor viewport)"
+        )
+
+        // The reveal is applied on the next layout pass by `revealRestoredNote`.
+        window.layoutIfNeeded()
+
+        XCTAssertEqual(
+            textView.contentOffset.y,
+            -textView.adjustedContentInset.top,
+            accuracy: 0.5,
+            "the first frame reveals the document top (content + viewport, canon §3), never a parked viewport (EC-19)"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - Empty inbox: the normal empty editor (FR-20, EC-01)
+    // -----------------------------------------------------------------------
+
+    /// Nothing pending: no save, no populate, and the first frame is the ordinary
+    /// empty editor.
+    func testColdStartWithEmptyInboxRendersTheNormalEmptyEditor() {
+        let seeded = seedFromInbox(payload: nil)
+        defer { try? FileManager.default.removeItem(at: seeded.container) }
+
+        XCTAssertEqual(
+            seeded.viewModel.text,
+            "",
+            "an unavailable/missing inbox is an empty inbox, not a crash (FR-20)"
+        )
+        XCTAssertEqual(
+            seeded.viewModel.populationRevision,
+            0,
+            "nothing is pending, so populate never runs (FR-20, EC-01)"
+        )
+        XCTAssertTrue(
+            seeded.recovery.savedTexts.isEmpty,
+            "no save for an empty inbox (FR-20)"
+        )
+        XCTAssertTrue(seeded.recovery.trimLimits.isEmpty, "no trim for an empty inbox (FR-20)")
+
+        let (textView, coordinator, window) = makeMountedNoteTextView(viewModel: seeded.viewModel)
+        defer { window.isHidden = true }
+
+        coordinator.reconcileText(in: textView)
+
+        XCTAssertEqual(textView.text, "", "the normal empty editor renders (FR-20, EC-01)")
+        XCTAssertEqual(
+            textView.selectedRange,
+            NSRange(location: 0, length: 0),
+            "an empty editor keeps the caret at the start"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - CRLF payload: normalized before the seed (FR-18, EC-05)
+    // -----------------------------------------------------------------------
+
+    /// The first frame shows the NORMALIZED text — never raw CRLF — and the
+    /// trailing newline survives.
+    func testColdStartWithCrlfPayloadRendersNormalizedTextOnTheFirstFrame() {
+        let seeded = seedFromInbox(payload: "a\r\nb\r\n")
+        defer { try? FileManager.default.removeItem(at: seeded.container) }
+
+        XCTAssertEqual(
+            seeded.viewModel.text,
+            "a\nb\n",
+            "the drained payload is normalized with the shared rule before seeding (FR-18)"
+        )
+
+        let (textView, coordinator, window) = makeMountedNoteTextView(viewModel: seeded.viewModel)
+        defer { window.isHidden = true }
+
+        coordinator.reconcileText(in: textView)
+
+        let rendered = textView.text ?? ""
+        XCTAssertEqual(rendered, "a\nb\n", "the first frame shows LF, not raw CRLF (FR-18, EC-05)")
+        XCTAssertFalse(rendered.contains("\r"), "no CR may reach the text view (FR-18)")
+        XCTAssertTrue(
+            rendered.hasSuffix("\n"),
+            "the trailing newline is preserved verbatim — the adapter never trims (FR-04, FR-18)"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - Synchrony of the extracted helper (NFR-01)
+    // -----------------------------------------------------------------------
+
+    /// The helper the root calls is synchronous and single-shot: no concurrency
+    /// hop, exactly one drain, exactly one shared-rule call site.
+    func testColdStartSeederSourceHasNoConcurrencyTokensAndDrainsOnce() throws {
+        let code = try coldStartSeederCodeLines().joined(separator: "\n")
+
+        for token in ["Task", "DispatchQueue", "async", "await"] {
+            XCTAssertEqual(
+                wholeWordOccurrences(of: token, in: code),
+                0,
+                "ColdStartSeeder must contain no `\(token)` — the cold-start seed is synchronous (NFR-01)"
+            )
+        }
+
+        let drainCalls = code
+            .components(separatedBy: .newlines)
+            .filter { $0.contains(".drain()") }
+        XCTAssertEqual(
+            drainCalls.count,
+            1,
+            "exactly one drain per launch, inside the helper (FR-16, NFR-01): \(drainCalls)"
+        )
+
+        let sharedRuleCalls = try iosAppAppRawLines()
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .filter { $0.contains("acceptIncomingText(") }
+        XCTAssertEqual(
+            sharedRuleCalls.count,
+            1,
+            "one shared-rule call site in the adapter — no local CRLF rewriting or trim (NFR-05): \(sharedRuleCalls)"
+        )
+    }
+
+    // -----------------------------------------------------------------------
+    // MARK: - Helpers
+    // -----------------------------------------------------------------------
+
+    /// Counts `token` as a whole word only, so an identifier such as
+    /// `applicationWillTerminate` cannot produce a false positive.
+    private func wholeWordOccurrences(of token: String, in text: String) -> Int {
+        text.split { !($0.isLetter || $0.isNumber || $0 == "_") }.filter { String($0) == token }.count
+    }
+
+    /// Code lines of the `ColdStartSeeder` declaration, resolved from this test
+    /// file's own compile-time `#filePath` — no bundle resource.
+    private func coldStartSeederCodeLines() throws -> [String] {
+        let lines = try iosAppAppRawLines()
+        guard let start = lines.firstIndex(where: { $0.contains("enum ColdStartSeeder") }) else {
+            throw SourceInspectionError.declarationNotFound("enum ColdStartSeeder")
+        }
+        // The type closes at column 0; indented inner braces must not stop the scan.
+        guard let end = lines[start...].firstIndex(where: { $0 == "}" }) else {
+            throw SourceInspectionError.declarationNotFound("closing brace of ColdStartSeeder")
+        }
+        return lines[start...end]
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+    }
+
+    /// Raw (unfiltered) lines of `iosApp/iosApp/iosAppApp.swift`, resolved from
+    /// this test file's own compile-time `#filePath`.
+    private func iosAppAppRawLines() throws -> [String] {
+        let testFileDirectory = URL(filePath: #filePath).deletingLastPathComponent()
+        let iosAppDirectory = testFileDirectory.deletingLastPathComponent()
+        let repositoryRoot = iosAppDirectory.deletingLastPathComponent()
+        let relativeSource = "iosApp/iosApp/iosAppApp.swift"
+
+        let candidates = [
+            iosAppDirectory.appending(path: "iosApp/iosAppApp.swift"),
+            repositoryRoot.appending(path: relativeSource),
+            URL(filePath: FileManager.default.currentDirectoryPath).appending(path: relativeSource)
+        ]
+
+        guard let sourceURL = candidates.first(where: { FileManager.default.fileExists(atPath: $0.path) }) else {
+            throw SourceInspectionError.sourceNotFound(paths: candidates.map(\.path))
+        }
+
+        let data = try Data(contentsOf: sourceURL)
+        return String(decoding: data, as: UTF8.self).components(separatedBy: .newlines)
+    }
+
+    /// Raised when the composition-root source cannot be located from `#filePath`;
+    /// failing (not skipping) keeps the NFR-01 assertions honest.
+    private enum SourceInspectionError: Error, CustomStringConvertible {
+        case sourceNotFound(paths: [String])
+        case declarationNotFound(String)
+
+        var description: String {
+            switch self {
+            case let .sourceNotFound(paths):
+                return "iosAppApp.swift not found from #filePath. Tried: \(paths.joined(separator: ", "))"
+            case let .declarationNotFound(what):
+                return "iosAppApp.swift does not declare \(what)"
+            }
+        }
     }
 }

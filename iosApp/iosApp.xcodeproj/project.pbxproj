@@ -53,6 +53,7 @@
 		A1000003 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000012 /* Assets.xcassets */; };
 		A1000004 /* SharedPackage in Frameworks */ = {isa = PBXBuildFile; productRef = A1000020 /* SharedPackage */; };
 		A1000101 /* SystemSharePresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000100 /* SystemSharePresenter.swift */; };
+		A1000111 /* ShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000110 /* ShareInbox.swift */; };
 		A1000061 /* TextOffsetBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000060 /* TextOffsetBridge.swift */; };
 		A1000063 /* NoteViewModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000062 /* NoteViewModel.swift */; };
 		A1000065 /* NoteEditor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000064 /* NoteEditor.swift */; };
@@ -74,6 +75,14 @@
 		A10000F5 /* ContentViewLifecycleTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000F4 /* ContentViewLifecycleTests.swift */; };
 		A10000F8 /* Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = A10000F9 /* Localizable.xcstrings */; };
 		A10000FC /* NoteEditorInsetTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A10000FD /* NoteEditorInsetTests.swift */; };
+		A1000114 /* ShareInboxTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000113 /* ShareInboxTests.swift */; };
+		A1000115 /* ShareInboxDrainer.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000116 /* ShareInboxDrainer.swift */; };
+		A1000117 /* ShareInboxDrainerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000118 /* ShareInboxDrainerTests.swift */; };
+		A1000121 /* ShareViewController.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000120 /* ShareViewController.swift */; };
+		A1000125 /* ShareInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000110 /* ShareInbox.swift */; };
+		A1000126 /* FogliettoShareExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = A1000124 /* FogliettoShareExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		A1000133 /* ShareExtensionContractTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000132 /* ShareExtensionContractTests.swift */; };
+		A1000135 /* LocalizationInventoryTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1000134 /* LocalizationInventoryTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -84,7 +93,28 @@
 			remoteGlobalIDString = A1000008;
 			remoteInfo = iosApp;
 		};
+		A1000131 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A1000000 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A100012C;
+			remoteInfo = FogliettoShareExtension;
+		};
 /* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		A100012B /* Embed App Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "";
+			dstSubfolderSpec = 13;
+			files = (
+				A1000126 /* FogliettoShareExtension.appex in Embed App Extensions */,
+			);
+			name = "Embed App Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		A1000009 /* iosApp.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = iosApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -114,7 +144,17 @@
 		A10000F4 /* ContentViewLifecycleTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentViewLifecycleTests.swift; sourceTree = "<group>"; };
 		A10000F9 /* Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = Localizable.xcstrings; sourceTree = "<group>"; };
 		A10000FD /* NoteEditorInsetTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NoteEditorInsetTests.swift; sourceTree = "<group>"; };
+		A1000110 /* ShareInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareInbox.swift; sourceTree = "<group>"; };
+		A1000113 /* ShareInboxTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareInboxTests.swift; sourceTree = "<group>"; };
+		A1000116 /* ShareInboxDrainer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareInboxDrainer.swift; sourceTree = "<group>"; };
+		A1000118 /* ShareInboxDrainerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareInboxDrainerTests.swift; sourceTree = "<group>"; };
 		A1000086 /* iosAppTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = iosAppTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000120 /* ShareViewController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
+		A1000122 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A1000123 /* ShareExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
+		A1000124 /* FogliettoShareExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = FogliettoShareExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1000132 /* ShareExtensionContractTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ShareExtensionContractTests.swift; sourceTree = "<group>"; };
+		A1000134 /* LocalizationInventoryTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LocalizationInventoryTests.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -133,6 +173,13 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		A1000129 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -142,6 +189,7 @@
 				A1000031 /* iosApp */,
 				B2000002,
 				A1000089 /* iosAppTests */,
+				A1000127 /* ShareExtension */,
 				A1000032 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -156,6 +204,7 @@
 				A1000062 /* NoteViewModel.swift */,
 				A1000064 /* NoteEditor.swift */,
 				A1000092 /* Chrome */,
+				A1000112 /* Share */,
 				A1000012 /* Assets.xcassets */,
 				A10000F9 /* Localizable.xcstrings */,
 				A1000013 /* Info.plist */,
@@ -177,11 +226,31 @@
 			path = Chrome;
 			sourceTree = "<group>";
 		};
+		A1000112 /* Share */ = {
+			isa = PBXGroup;
+			children = (
+				A1000110 /* ShareInbox.swift */,
+				A1000116 /* ShareInboxDrainer.swift */,
+			);
+			path = Share;
+			sourceTree = "<group>";
+		};
+		A1000127 /* ShareExtension */ = {
+			isa = PBXGroup;
+			children = (
+				A1000120 /* ShareViewController.swift */,
+				A1000122 /* Info.plist */,
+				A1000123 /* ShareExtension.entitlements */,
+			);
+			path = ShareExtension;
+			sourceTree = "<group>";
+		};
 		A1000032 /* Products */ = {
 			isa = PBXGroup;
 			children = (
 				A1000009 /* iosApp.app */,
 				A1000086 /* iosAppTests.xctest */,
+				A1000124 /* FogliettoShareExtension.appex */,
 				B2000003,
 			);
 			name = Products;
@@ -200,6 +269,10 @@
 				A10000F2 /* LifecycleSaveCoordinatorTests.swift */,
 				A10000F4 /* ContentViewLifecycleTests.swift */,
 				A10000FD /* NoteEditorInsetTests.swift */,
+				A1000113 /* ShareInboxTests.swift */,
+				A1000118 /* ShareInboxDrainerTests.swift */,
+				A1000132 /* ShareExtensionContractTests.swift */,
+				A1000134 /* LocalizationInventoryTests.swift */,
 			);
 			path = iosAppTests;
 			sourceTree = "<group>";
@@ -214,10 +287,12 @@
 				A1000005 /* Sources */,
 				A1000006 /* Frameworks */,
 				A1000007 /* Resources */,
+				A100012B /* Embed App Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
+				A1000130 /* PBXTargetDependency */,
 			);
 			name = iosApp;
 			packageProductDependencies = (
@@ -243,6 +318,23 @@
 			productName = iosAppTests;
 			productReference = A1000086 /* iosAppTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
+		};
+		A100012C /* FogliettoShareExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A100012D /* Build configuration list for PBXNativeTarget "FogliettoShareExtension" */;
+			buildPhases = (
+				A1000128 /* Sources */,
+				A1000129 /* Frameworks */,
+				A100012A /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = FogliettoShareExtension;
+			productName = FogliettoShareExtension;
+			productReference = A1000124 /* FogliettoShareExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -334,6 +426,7 @@
 				B2000006,
 				A1000008 /* iosApp */,
 				A1000085 /* iosAppTests */,
+				A100012C /* FogliettoShareExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -345,6 +438,13 @@
 			files = (
 				A1000003 /* Assets.xcassets in Resources */,
 				A10000F8 /* Localizable.xcstrings in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A100012A /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -368,6 +468,8 @@
 				A10000D1 /* ChromeOverlay.swift in Sources */,
 				A10000D3 /* ChromeMetrics.swift in Sources */,
 				A1000101 /* SystemSharePresenter.swift in Sources */,
+				A1000111 /* ShareInbox.swift in Sources */,
+				A1000115 /* ShareInboxDrainer.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -385,6 +487,19 @@
 				A10000F3 /* LifecycleSaveCoordinatorTests.swift in Sources */,
 				A10000F5 /* ContentViewLifecycleTests.swift in Sources */,
 				A10000FC /* NoteEditorInsetTests.swift in Sources */,
+				A1000114 /* ShareInboxTests.swift in Sources */,
+				A1000117 /* ShareInboxDrainerTests.swift in Sources */,
+				A1000133 /* ShareExtensionContractTests.swift in Sources */,
+				A1000135 /* LocalizationInventoryTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A1000128 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000121 /* ShareViewController.swift in Sources */,
+				A1000125 /* ShareInbox.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -396,6 +511,11 @@
 			target = A1000008 /* iosApp */;
 			targetProxy = A1000087 /* PBXContainerItemProxy */;
 		};
+		A1000130 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A100012C /* FogliettoShareExtension */;
+			targetProxy = A1000131 /* PBXContainerItemProxy */;
+		};
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
@@ -404,6 +524,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = iosApp/iosApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -415,6 +536,7 @@
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.paolosantucci.foglietto;
 				PRODUCT_NAME = iosApp;
+				PROVISIONING_PROFILE_SPECIFIER = "$(IOS_APP_PROFILE_SPECIFIER)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -426,6 +548,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = iosApp/iosApp.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = "";
@@ -436,6 +559,7 @@
 				MARKETING_VERSION = 1.0.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.paolosantucci.foglietto;
 				PRODUCT_NAME = iosApp;
+				PROVISIONING_PROFILE_SPECIFIER = "$(IOS_APP_PROFILE_SPECIFIER)";
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_VERSION = 6.0;
 				TARGETED_DEVICE_FAMILY = 1;
@@ -595,6 +719,49 @@
 			};
 			name = Release;
 		};
+		A100012E /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paolosantucci.foglietto.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(IOS_EXTENSION_PROFILE_SPECIFIER)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		A100012F /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				APPLICATION_EXTENSION_API_ONLY = YES;
+				CODE_SIGN_ENTITLEMENTS = ShareExtension/ShareExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = ShareExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MARKETING_VERSION = 1.0.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.paolosantucci.foglietto.ShareExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				PROVISIONING_PROFILE_SPECIFIER = "$(IOS_EXTENSION_PROFILE_SPECIFIER)";
+				SKIP_INSTALL = YES;
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = 1;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -621,6 +788,15 @@
 			buildConfigurations = (
 				A1000082 /* Debug */,
 				A1000083 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A100012D /* Build configuration list for PBXNativeTarget "FogliettoShareExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A100012E /* Debug */,
+				A100012F /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
