@@ -7,19 +7,58 @@ import shared
 // The editor renders the SYSTEM DEFAULT font family and size (user direction —
 // always the system default): `UIFont.preferredFont(forTextStyle: .body)` —
 // the system family (San Francisco) at the user's Dynamic Type body size.
-// Line height 1.4 via `NSMutableParagraphStyle.lineHeightMultiple` on
-// `typingAttributes`, so newly typed characters inherit the style.
-private func applyFont(to textView: UITextView) {
-    let font = UIFont.preferredFont(forTextStyle: .body)
+// Line height 1.4 via `NSMutableParagraphStyle.lineHeightMultiple`.
+private let editorLineHeightMultiple: CGFloat = 1.4
 
+/// The attributes every piece of editor text must carry.
+///
+/// One definition, used for three things: the view's `font`, the `typingAttributes`
+/// new characters inherit, and the ATTRIBUTES OF TEXT ALREADY IN THE STORAGE. The
+/// third is what the previous version missed: `typingAttributes` only affects
+/// characters typed afterwards, so a restored note or any wholesale text write
+/// rendered at the flat default leading for the rest of the session.
+private func editorTextAttributes() -> [NSAttributedString.Key: Any] {
     let style = NSMutableParagraphStyle()
-    style.lineHeightMultiple = 1.4
-
-    textView.font = font
-    textView.typingAttributes = [
-        .font: font,
+    style.lineHeightMultiple = editorLineHeightMultiple
+    return [
+        .font: UIFont.preferredFont(forTextStyle: .body),
         .paragraphStyle: style
     ]
+}
+
+private func applyFont(to textView: UITextView) {
+    let attributes = editorTextAttributes()
+    textView.font = attributes[.font] as? UIFont
+    textView.typingAttributes = attributes
+    applyEditorTextAttributes(to: textView)
+}
+
+/// Re-applies the editor attributes to the text already in the storage.
+///
+/// Safe on an empty buffer and cheap for the note sizes this app handles; it changes
+/// attributes only, never characters or the selection.
+private func applyEditorTextAttributes(to textView: UITextView) {
+    let length = (textView.textStorage.string as NSString).length
+    guard length > 0 else { return }
+    textView.textStorage.addAttributes(
+        editorTextAttributes(),
+        range: NSRange(location: 0, length: length)
+    )
+}
+
+/// True when the view no longer carries the desired font or line height.
+///
+/// Both halves matter: Dynamic Type can change the font mid-session, and the
+/// paragraph style can be lost (a wholesale text write replaces attributes) without
+/// the font changing at all — which the previous font-only comparison could not see.
+private func needsFontReconcile(_ textView: UITextView) -> Bool {
+    let desired = UIFont.preferredFont(forTextStyle: .body)
+    guard let current = textView.font,
+          current.pointSize == desired.pointSize,
+          current.familyName == desired.familyName else { return true }
+
+    let typingStyle = textView.typingAttributes[.paragraphStyle] as? NSParagraphStyle
+    return abs((typingStyle?.lineHeightMultiple ?? 0) - editorLineHeightMultiple) > 0.001
 }
 
 /// `UIViewRepresentable` wrapping a `NoteTextView` — the editor content surface.
@@ -236,9 +275,7 @@ struct NoteEditor: UIViewRepresentable {
     /// Reconcile font, text, and inset on divergence; explicit population also resets the viewport.
     /// The font divergence check covers a live Dynamic Type change mid-session.
     func updateUIView(_ uiView: UITextView, context: Context) {
-        let desired = UIFont.preferredFont(forTextStyle: .body)
-        if uiView.font?.pointSize != desired.pointSize
-            || uiView.font?.familyName != desired.familyName {
+        if needsFontReconcile(uiView) {
             applyFont(to: uiView)
         }
 
@@ -251,7 +288,14 @@ struct NoteEditor: UIViewRepresentable {
             // unconditional @Observable write during the update phase
             // self-invalidates the reading view — a self-sustaining loop.
             guard (coordinatorBox?.canUndo ?? false) != canUndo else { return }
-            coordinatorBox?.canUndo = canUndo
+            // Deferred out of the update phase: writing an @Observable value while
+            // SwiftUI is updating its view graph invalidates during the same pass
+            // ("Modifying state during view update"). The guard above keeps the
+            // write idempotent; the hop keeps it out of the unsafe window.
+            DispatchQueue.main.async {
+                guard (coordinatorBox?.canUndo ?? false) != canUndo else { return }
+                coordinatorBox?.canUndo = canUndo
+            }
         }
         context.coordinator.mirrorUndoState()
     }
@@ -319,6 +363,10 @@ struct NoteEditor: UIViewRepresentable {
         func reconcileText(in textView: UITextView) {
             if textView.text != viewModel.text {
                 textView.text = viewModel.text
+                // A wholesale write drops the paragraph attributes the text had, so a
+                // restored or seeded note would render at the flat default leading for
+                // the rest of the session. Re-apply them to the new content.
+                applyEditorTextAttributes(to: textView)
             }
             guard populationRevision != viewModel.populationRevision else { return }
             populationRevision = viewModel.populationRevision
@@ -411,7 +459,12 @@ struct NoteEditor: UIViewRepresentable {
         /// teardown (EC-13).
         func pasteAtCaret() {
             guard let tv = textView else { return }
-            guard let paste = UIPasteboard.general.string, !paste.isEmpty else { return }
+            guard let raw = UIPasteboard.general.string, !raw.isEmpty else { return }
+            // The buffer's contract is LF-only: the continuation and indent rules
+            // only understand "\n", so a pasted CRLF note would produce empty
+            // numbered items and outdent round-trip drift. Same rule as an inbound
+            // share, minus the blank rejection (pasting spaces pastes spaces).
+            let paste = IncomingTextKt.normalizeLineEndings(raw: raw)
             let range = tv.selectedRange
             if let textRange = tv.selectedTextRange {
                 tv.replace(textRange, withText: paste)
@@ -450,7 +503,10 @@ struct NoteEditor: UIViewRepresentable {
             guard let tv = textView, !tv.text.isEmpty,
                   let range = tv.textRange(from: tv.beginningOfDocument, to: tv.endOfDocument) else { return }
             tv.unmarkText()
-            _ = SaveNoteToRecovery(repository: recovery).invoke(text: tv.text)
+            // Keep the note when the store cannot take it: clearing a buffer whose
+            // save was refused would destroy the only copy (FR-07 applies here too).
+            let attempt = SaveNoteToRecovery(repository: recovery).attemptSave(text: tv.text)
+            guard !attempt.failed else { return }
             tv.undoManager?.beginUndoGrouping()
             tv.replace(range, withText: "")
             tv.undoManager?.endUndoGrouping()
