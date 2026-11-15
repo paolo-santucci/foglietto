@@ -24,6 +24,8 @@ import kotlin.test.fail
  *   Gate 6 - M1 placeholders (Platform.kt, PlaceholderTest.kt, JvmSmokeTest.kt) do NOT exist
  *   Gate 7 - no saveSync / callSync / _writeChain / _trimSync in recovery sources
  *   Gate 8 - trim(keep: Int) exists, trim(keep: Int = ...) (default) does NOT
+ *   Gate 9 - editor/IncomingText.kt is pure: no regex, no CR-aware splitter, no I/O,
+ *            no platform import, no string literal (share-sheet inbound wave, TASK-01)
  *
  * TDD discipline (plan section 3 TASK-07):
  *   Gate 6 is RED while the three M1 placeholder files exist.
@@ -434,6 +436,75 @@ class SourceScanGateTest {
         if (violations.isNotEmpty()) {
             fail(
                 "Gate 8b FAILED -- trim has a default keep value (violates FR-08 / EC-15):\n" +
+                    violations.joinToString("\n")
+            )
+        }
+    }
+
+    // Gate 9 - IncomingText.kt purity (share-sheet inbound wave, TASK-01)
+
+    /**
+     * Gate 9: the shared inbound rule stays a total, dependency-free function.
+     *
+     * Scanned-file set: `commonMain/.../shared/editor/IncomingText.kt` — the only file the
+     * share-sheet wave adds to the editor package (Swift consumes it as
+     * `IncomingTextKt.acceptIncomingText(_:)`).
+     *
+     * Forbidden in code lines (comment lines excluded by [codeLines]):
+     *   - `Regex(`                 -- the CRLF collapse must be one manual left-to-right pass
+     *   - `.lines()`, `.lineSequence()` -- CR-aware splitters, unacceptable for this rule
+     *   - `FileSystem`             -- no I/O on the inbound path
+     *   - any double quote         -- zero string literals, therefore zero display strings (NFR-02)
+     *
+     * Forbidden on ALL lines (import directives never live inside a KDoc block):
+     *   - `import android`, `import androidx`, `import platform`, `import UIKit`
+     *
+     * Also pinned: exactly one `trim(` occurrence in code, so the blank guard stays the only
+     * trimming step and the returned payload is never re-trimmed (FR-04).
+     */
+    @Test
+    fun gate9_incomingTextRuleIsPure() {
+        val incomingText = File(
+            sharedSrc,
+            "commonMain/kotlin/com/paolosantucci/foglietto/shared/editor/IncomingText.kt"
+        )
+        assertTrue(
+            incomingText.exists(),
+            "Gate 9 FAILED -- the shared inbound rule is missing at: ${incomingText.absolutePath}"
+        )
+
+        val forbiddenImports = listOf(
+            "import android",
+            "import androidx",
+            "import platform",
+            "import UIKit",
+        )
+        val importViolations = incomingText.readLines().mapIndexedNotNull { idx, line ->
+            val trimmed = line.trim()
+            if (forbiddenImports.any { trimmed.startsWith(it) }) "${idx + 1}: $line" else null
+        }
+
+        val forbiddenCode = listOf("Regex(", ".lines()", ".lineSequence()", "FileSystem", "\"")
+        val codeViolations = codeLines(incomingText)
+            .filter { line -> forbiddenCode.any { token -> line.contains(token) } }
+
+        val trimCount = codeLines(incomingText).sumOf { line ->
+            var count = 0
+            var from = line.indexOf("trim(")
+            while (from >= 0) {
+                count++
+                from = line.indexOf("trim(", from + 1)
+            }
+            count
+        }
+
+        val violations = importViolations + codeViolations +
+            if (trimCount == 1) emptyList() else listOf("expected exactly 1 trim( in code, found $trimCount")
+
+        if (violations.isNotEmpty()) {
+            fail(
+                "Gate 9 FAILED -- IncomingText.kt must hold no regex, no CR-aware splitter, no I/O, " +
+                    "no platform import, no string literal, and exactly one trim():\n" +
                     violations.joinToString("\n")
             )
         }

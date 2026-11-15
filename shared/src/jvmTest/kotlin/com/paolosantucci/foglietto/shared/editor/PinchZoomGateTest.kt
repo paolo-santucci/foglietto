@@ -117,11 +117,12 @@ class PinchZoomGateTest {
     // -------------------------------------------------------------------------
 
     /**
-     * Gate C: the commonMain editor package must contain exactly four .kt files:
+     * Gate C: the commonMain editor package must contain exactly five .kt files:
      *   - LineIndent.kt   (M2 pre-existing)
      *   - ListContinuation.kt  (M2 pre-existing)
      *   - PinchZoom.kt    (M3 new — the sole M3 addition, NFR-05)
      *   - ShareGate.kt    (TASK-05 promoted rule — canShare; not an M3 addition)
+     *   - IncomingText.kt (share-sheet wave TASK-01 — acceptIncomingText; not an M3 addition)
      *
      * Any additional .kt file under this directory is an untracked addition that
      * violates the exact-set invariant (PinchZoom.kt stays the sole *M3* addition).
@@ -135,8 +136,15 @@ class PinchZoomGateTest {
 
         // ShareGate.kt joined the package in the Android-compose wave (TASK-05, FR-08):
         // it is the promoted canShare predicate, not an M3 addition — PinchZoom.kt remains
-        // the sole M3-added file.
-        val expectedFiles = setOf("LineIndent.kt", "ListContinuation.kt", "PinchZoom.kt", "ShareGate.kt")
+        // the sole M3-added file. IncomingText.kt joined in the share-sheet inbound wave
+        // (TASK-01 of sp-20261114): the promoted acceptIncomingText rule, same reasoning.
+        val expectedFiles = setOf(
+            "LineIndent.kt",
+            "ListContinuation.kt",
+            "PinchZoom.kt",
+            "ShareGate.kt",
+            "IncomingText.kt",
+        )
 
         val actualFiles = editorDir.listFiles()
             ?.filter { it.isFile && it.name.endsWith(".kt") }
@@ -149,7 +157,8 @@ class PinchZoomGateTest {
 
         val messages = mutableListOf<String>()
         if (unexpected.isNotEmpty()) {
-            messages += "Unexpected files (only PinchZoom.kt was M3-added; plus ShareGate.kt from TASK-05; NFR-05): $unexpected"
+            messages += "Unexpected files (only PinchZoom.kt was M3-added; plus ShareGate.kt from TASK-05 " +
+                "and IncomingText.kt from share-sheet TASK-01; NFR-05): $unexpected"
         }
         if (missing.isNotEmpty()) {
             messages += "Missing expected files: $missing"
@@ -158,7 +167,7 @@ class PinchZoomGateTest {
         if (messages.isNotEmpty()) {
             fail(
                 "Gate C FAILED — commonMain editor/ package contents diverge from expected " +
-                    "{LineIndent.kt, ListContinuation.kt, PinchZoom.kt, ShareGate.kt}:\n" +
+                    "{LineIndent.kt, ListContinuation.kt, PinchZoom.kt, ShareGate.kt, IncomingText.kt}:\n" +
                     messages.joinToString("\n")
             )
         }
