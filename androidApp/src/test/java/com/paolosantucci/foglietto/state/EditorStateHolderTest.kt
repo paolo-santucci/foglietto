@@ -310,6 +310,26 @@ class EditorStateHolderTest {
         assertEquals(TextRange(5), harness.holder.value.selection)
     }
 
+    @Test
+    fun `reset empties the buffer and drops both stacks`() {
+        val harness = Harness()
+        harness.seed("hello", caret = 5)
+        harness.holder.undo()
+        harness.holder.redo()
+        assertTrue("history is populated before the reset.", harness.holder.canUndo || harness.holder.canRedo)
+
+        harness.holder.reset()
+
+        assertEquals(TextFieldValue("", TextRange.Zero), harness.holder.value)
+        assertFalse("Clear must reset Undo.", harness.holder.canUndo)
+        assertFalse("Clear must reset Redo.", harness.holder.canRedo)
+        // A no-op undo is what the disabled button promises: nothing comes back.
+        harness.holder.undo()
+        assertEquals("", harness.holder.value.text)
+        // Nothing to scroll to in an empty buffer — unlike `populate`, which signals it.
+        assertEquals(0, harness.holder.scrollSignal)
+    }
+
     // ── FR-31 ────────────────────────────────────────────────────────────────
 
     @Test

@@ -120,22 +120,23 @@ fun FogliettoApp(container: AppContainer, modifier: Modifier = Modifier) {
     val clearedMessage = stringResource(clearSnackbar.messageRes)
     val undoLabel = stringResource(clearSnackbar.actionLabelRes)
 
-    // Clear = save → empty → notify (TASK-19), undoable from the Snackbar (FR-32, EC-22).
+    // Clear = save → empty + reset Undo/Redo → notify (FR-32). The Snackbar's Undo is the one-shot
+    // restore the controller hands over; the top bar's Undo is deliberately empty after a Clear.
     val clearController = remember(editor, snackbarHostState, clearedMessage, undoLabel) {
         ClearController(
             editor = editor,
             coordinator = container.coordinator,
-            onCleared = {
+            onCleared = { restore ->
                 scope.launch {
                     val result = snackbarHostState.showSnackbar(
                         message = clearedMessage,
                         actionLabel = undoLabel,
                         // Canon §Components 8 is a ~3s timed toast; M3's `Short` (4s) is the closest
                         // stock duration and stays non-blocking. Missing the action is safe by
-                        // design: the snapshot stays on the Undo stack (EC-22).
+                        // design: the text is already in the recovery store (FR-32).
                         duration = SnackbarDuration.Short,
                     )
-                    if (result == SnackbarResult.ActionPerformed) editor.undo()
+                    if (result == SnackbarResult.ActionPerformed) restore()
                 }
             },
         )

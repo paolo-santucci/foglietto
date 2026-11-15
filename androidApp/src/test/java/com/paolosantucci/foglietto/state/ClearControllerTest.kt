@@ -21,17 +21,20 @@ import org.junit.Test
 /**
  * Tier A unit suite for [ClearController] — plain JVM, no Robolectric, no Compose UI host.
  *
- * Pins plan TASK-19 / spec FR-32, FR-30, EC-11, EC-22:
- *  - [clearSavesTheRawTextEmptiesTheBufferAndSignalsTheSnackbar] — the order save → empty →
- *    signal, and that the written payload is the RAW (un-trimmed) buffer;
- *  - [theClearedStateIsUndoable] — the Snackbar action and the top-bar Undo both restore the
- *    pre-clear text *and* selection, because `populate` records the pre-mutation snapshot;
- *  - [clearOnAnEmptyBufferIsANoOp] — `canClear` gates the whole flow: no save, no signal;
- *  - [theClearSaveAndALifecycleSaveNeverInterleave] — EC-11: both saves dispatch through the one
- *    injected single-thread executor, so they can never overlap;
- *  - [aSecondClearWhileTheSignalIsPendingDoesNotDoubleSaveOrSignal] and
- *    [aReentrantClearFromTheSignalDoesNotDoubleSaveOrSignal] — one clear produces exactly one
- *    save and one signal.
+ * Pins plan TASK-19 / spec FR-32, FR-30, EC-11, EC-22 (revised 2026-11-15):
+ *  - [clear saves the raw text, empties the buffer and signals the snackbar] — the order save →
+ *    empty → signal, and that the written payload is the RAW (un-trimmed) buffer;
+ *  - [clearing resets undo and redo] — Clear drops both history stacks, so the cleared note cannot
+ *    be resurrected from the top bar (this is the behaviour the product owner asked for: the Undo
+ *    button resets when Clear is pressed);
+ *  - [the snackbar restore brings back the cleared text and its selection] — the one-shot restore
+ *    the signal hands over is the only way back, and it re-arms the history as a normal note;
+ *  - [clear on an empty buffer is a no-op] — `canClear` gates the whole flow: no save, no signal;
+ *  - [the clear save and a lifecycle save never interleave] — EC-11: both saves dispatch through
+ *    the one injected single-thread executor, so they can never overlap;
+ *  - [a second clear while the signal is pending does not double-save or signal] and
+ *    [a re-entrant clear from the signal does not double-save or signal] — one clear produces
+ *    exactly one save and one signal.
  *
  * There is no confirmation dialog anywhere in this flow (FR-30): the controller has no
  * "confirm" entry point to test, and the suite asserts the single-tap contract instead.
@@ -51,15 +54,33 @@ class ClearControllerTest {
     }
 
     @Test
-    fun `the cleared state is undoable`() {
+    fun `clearing resets undo and redo`() {
+        Harness(text = "  hello  ").use { harness ->
+            assertTrue("typing armed Undo.", harness.holder.canUndo)
+
+            harness.controller.clear()
+
+            assertFalse("Clear must leave the top bar's Undo disabled.", harness.holder.canUndo)
+            assertFalse("and Redo too — the note is new.", harness.holder.canRedo)
+            harness.holder.undo()
+            assertEquals("Undo is a no-op after a reset.", "", harness.holder.value.text)
+            harness.holder.redo()
+            assertEquals("Redo is a no-op after a reset.", "", harness.holder.value.text)
+        }
+    }
+
+    @Test
+    fun `the snackbar restore brings back the cleared text and its selection`() {
         Harness(text = "  hello  ", initialCaret = 3).use { harness ->
             harness.controller.clear()
-            assertTrue(harness.holder.canUndo)
 
-            harness.holder.undo()
+            harness.restore?.invoke()
 
             assertEquals("  hello  ", harness.holder.value.text)
             assertEquals(TextRange(3), harness.holder.value.selection)
+            // The restore is a normal programmatic edit: it re-arms the history, so the restored
+            // note behaves like any other buffer from here on.
+            assertTrue(harness.holder.canUndo)
         }
     }
 
@@ -194,7 +215,14 @@ class ClearControllerTest {
         var signals: Int = 0
             private set
 
-        val controller = ClearController(holder, coordinator) { signals++ }
+        /** The one-shot restore the controller hands to the Snackbar (null before any clear). */
+        var restore: (() -> Unit)? = null
+            private set
+
+        val controller = ClearController(holder, coordinator) { restoreAction ->
+            signals++
+            restore = restoreAction
+        }
 
         init {
             if (text.isNotEmpty()) holder.onInput(TextFieldValue(text, TextRange(initialCaret)))

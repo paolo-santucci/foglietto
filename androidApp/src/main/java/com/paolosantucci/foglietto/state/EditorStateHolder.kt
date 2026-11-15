@@ -169,14 +169,36 @@ class EditorStateHolder internal constructor(
     /**
      * Replaces the buffer with [text], caret at zero, and bumps [scrollSignal] (FR-29, EC-22).
      *
-     * Used by Recent-notes restore and by Clear: the pre-mutation snapshot is recorded, so the
-     * change is undoable.
+     * Used by Recent-notes restore, inbound-share seeding and the Snackbar's one-shot restore of a
+     * Clear: the pre-mutation snapshot is recorded, so the change is undoable.
+     *
+     * @param selection where the caret (or selection) lands; [TextRange.Zero] for a restore, which
+     *   is FR-29's caret reset. The Clear restore passes the selection the buffer had before it was
+     *   emptied, so the user's caret comes back with the text.
      */
-    fun populate(text: String) {
+    fun populate(text: String, selection: TextRange = TextRange.Zero) {
         history.record(snapshotOf(value))
         typingRunStart = null
-        write(TextFieldValue(text, TextRange.Zero))
+        write(TextFieldValue(text, selection))
         scrollSignalState.intValue += 1
+    }
+
+    /**
+     * Clear's second half (FR-32): empties the buffer **and drops both history stacks**, so the
+     * note that was just cleared can never be resurrected through Undo — Clear starts a new note,
+     * and the way back is the recovery store (or the Snackbar's one-shot restore).
+     *
+     * This is the same "empty + drop history" shape as the foreground-return reset in
+     * [com.paolosantucci.foglietto.AppContainer.onProcessStarted]: a buffer the app replaced on
+     * purpose must not sit at the bottom of the Undo stack, waiting to resurface hours later.
+     *
+     * [scrollSignal] is deliberately not bumped: the buffer is empty, so there is nothing to
+     * scroll to.
+     */
+    fun reset() {
+        history.clear()
+        typingRunStart = null
+        write(TextFieldValue("", TextRange.Zero))
     }
 
     // ── History navigation ───────────────────────────────────────────────────
