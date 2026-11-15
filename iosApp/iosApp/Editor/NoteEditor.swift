@@ -354,6 +354,11 @@ struct NoteEditor: UIViewRepresentable {
             }
             viewModel.updateText(tv.text ?? "")
             mirrorUndoState()
+            // Programmatic replacement bypasses UIKit's own caret scrolling, so a paste
+            // while the keyboard is up can leave the caret (and the pasted tail) outside
+            // the visible area. Bring the caret into view; the idle clamp after it is a
+            // no-op while first responder by design.
+            tv.scrollRangeToVisible(tv.selectedRange)
             (tv as? NoteTextView)?.clampIdleOffset()
         }
 
