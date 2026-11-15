@@ -438,8 +438,8 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
         let code = codeLines.joined(separator: "\n")
 
         XCTAssertFalse(code.contains("catch"),
-            "LifecycleSaveCoordinator.swift must contain no 'catch' — a Kotlin failure " +
-            "must propagate unchanged and terminate the process before the seed (FR-07 / EC-11)")
+            "LifecycleSaveCoordinator.swift must contain no 'catch' — the save failure is a " +
+            "value returned by attemptSave, not an exception handled here (FR-07)")
 
         for token in ["Task", "DispatchQueue", "async", "await"] {
             XCTAssertEqual(wordOccurrences(of: token, in: code), 0,
@@ -447,9 +447,15 @@ final class LifecycleSaveCoordinatorTests: XCTestCase {
                 "outside comments — the save path is synchronous (NFR-01)")
         }
 
-        let saveSites = codeLines.filter { $0.contains("saveUseCase.invoke(") }
+        let saveSites = codeLines.filter { $0.contains("saveUseCase.attemptSave(") }
         XCTAssertEqual(saveSites.count, 1,
-            "exactly one save code path must exist: one 'saveUseCase.invoke(' call site (D6)")
+            "exactly one save code path must exist: one 'saveUseCase.attemptSave(' call site (D6)")
+
+        XCTAssertFalse(
+            code.contains("saveUseCase.invoke("),
+            "the coordinator must not call the throwing invoke( — a Kotlin exception crossing " +
+            "into Swift terminates the process (FR-07 / EC-11)"
+        )
 
         let delegationSites = codeLines.filter {
             $0.contains("saveCurrentBuffer()") && !$0.contains("func saveCurrentBuffer(")
