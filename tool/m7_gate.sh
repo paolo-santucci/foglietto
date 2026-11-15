@@ -4,7 +4,7 @@
 # Asserts the full M7 target tree in one runnable command.  Run from the repo
 # root: bash tool/m7_gate.sh
 #
-# Exit 0 only when ALL checks (1)–(13) pass.
+# Exit 0 only when ALL checks (1)–(14) pass.
 # Each check prints a labelled PASS/FAIL line; the script exits 1 on any FAIL.
 #
 # Design rules:
@@ -213,17 +213,41 @@ fi
 # ---------------------------------------------------------------------------
 # 8. exportoptions-bundle-id-key
 #
-# FR-26: The provisioningProfiles dict in ExportOptions.plist.template must
-# contain the canonical bundle identifier as a key.  Without it, xcodebuild
-# -exportArchive cannot find the provisioning profile for the app target.
+# FR-26/FR-28: the provisioningProfiles dict in ExportOptions.plist.template
+# must contain BOTH bundle identifiers as keys — the host app
+# (com.paolosantucci.foglietto) and the share extension
+# (com.paolosantucci.foglietto.ShareExtension).  -exportArchive resolves a
+# profile per bundle id found in the archive, so a missing extension entry
+# leaves that target unsignable and the export fails (FR-28).
+#
+# Each key must map to its OWN placeholder: __APP_PROFILE_UUID__ for the host,
+# __EXTENSION_PROFILE_UUID__ for the extension.  Two identical placeholders are
+# the silent variant of the same bug — ios.yml's sed would then substitute one
+# UUID into both entries and sign the extension with the app profile.
+# Adjacency (grep -A1: key line + value line) is the idiom used by checks 1–3.
 # ---------------------------------------------------------------------------
-echo "[8] exportoptions-bundle-id-key: 'com.paolosantucci.foglietto' key present under provisioningProfiles in ExportOptions.plist.template ..."
+echo "[8] exportoptions-bundle-id-key: BOTH bundle ids are keys under provisioningProfiles, each mapped to its own placeholder ..."
 
 if [[ -f "$export_options" ]]; then
-    if grep -q "<key>com.paolosantucci.foglietto</key>" "$export_options" 2>/dev/null; then
-        result "exportoptions-bundle-id-key" ok
+    host_key='<key>com.paolosantucci.foglietto</key>'
+    extension_key='<key>com.paolosantucci.foglietto.ShareExtension</key>'
+    host_uuid='<string>__APP_PROFILE_UUID__</string>'
+    extension_uuid='<string>__EXTENSION_PROFILE_UUID__</string>'
+
+    # Exactly two com.paolosantucci.foglietto[.Suffix] keys, and nothing else.
+    bundle_key_count=$(grep -cE '^[[:space:]]*<key>com\.paolosantucci\.foglietto(\.[A-Za-z0-9_]+)?</key>' "$export_options" 2>/dev/null || true)
+
+    host_pair=$(grep -A1 -F "$host_key" "$export_options" 2>/dev/null || true)
+    extension_pair=$(grep -A1 -F "$extension_key" "$export_options" 2>/dev/null || true)
+
+    if [[ "$bundle_key_count" -ne 2 ]]; then
+        result "exportoptions-bundle-id-key" fail "$export_options declares $bundle_key_count com.paolosantucci.foglietto[.<suffix>] key(s) under provisioningProfiles — need exactly 2, the host app id and the extension id (FR-28 — a missing entry leaves that bundle unsignable at -exportArchive)"
+    elif ! echo "$host_pair" | grep -qF "$host_uuid"; then
+        result "exportoptions-bundle-id-key" fail "$host_key in $export_options is not mapped to $host_uuid (FR-28 — the host bundle needs its own profile placeholder)"
+    elif ! echo "$extension_pair" | grep -qF "$extension_uuid"; then
+        result "exportoptions-bundle-id-key" fail "$extension_key in $export_options is not mapped to $extension_uuid (FR-28 — a missing or duplicated placeholder signs the extension with the app profile)"
     else
-        result "exportoptions-bundle-id-key" fail "<key>com.paolosantucci.foglietto</key> not found in $export_options (FR-26 — bundle ID missing from provisioningProfiles)"
+        result "exportoptions-bundle-id-key" ok
     fi
 else
     result "exportoptions-bundle-id-key" fail "$export_options not found on disk"
@@ -409,6 +433,75 @@ else
         result "m1+m4+m5+m6-still-pass" fail "m5_gate FAILED — ${m5_summary}"
     else
         result "m1+m4+m5+m6-still-pass" fail "m6_gate FAILED — ${m6_summary}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# 14. two-target-profile-specifiers
+#
+# FR-28/NFR-07: one profile per signed target, resolved at archive time.
+# The archive now contains two signable bundles, so:
+#
+#   a) the host configs must take their profile from
+#      PROVISIONING_PROFILE_SPECIFIER = "$(IOS_APP_PROFILE_SPECIFIER)" and the
+#      extension configs from "$(IOS_EXTENSION_PROFILE_SPECIFIER)".  A single
+#      PROJECT-WIDE specifier override on the xcodebuild command line is a
+#      project-wide build-setting override, so every target (the embedded appex
+#      included) is signed with that one profile and the export/upload fails.
+#   b) ios.yml's archive step must therefore pass NO global
+#      PROVISIONING_PROFILE_SPECIFIER= override — it passes
+#      IOS_APP_PROFILE_SPECIFIER / IOS_EXTENSION_PROFILE_SPECIFIER instead — and
+#      it must consume the extension's own profile secret
+#      (IOS_EXTENSION_PROVISIONING_PROFILE_BASE64), not the host one twice.
+#
+# Target identity is taken from CODE_SIGN_ENTITLEMENTS: the entitlements file is
+# what actually distinguishes host configs from extension configs in the
+# pbxproj, and it is set on both (TASK-09 P3).  Counting per entitlements file
+# and then requiring an equal number of matching specifiers is a textual proxy
+# for "every config of target T carries T's specifier" — no project parser, no
+# Xcode, no macOS.  The counts are additionally cross-checked against the total
+# number of specifier assignments so a stray third one cannot hide.
+# ---------------------------------------------------------------------------
+echo "[14] two-target-profile-specifiers: per-target specifiers in the pbxproj, no global override in ios.yml ..."
+
+pbxproj="iosApp/iosApp.xcodeproj/project.pbxproj"
+host_entitlements="iosApp/iosApp.entitlements"
+extension_entitlements="ShareExtension/ShareExtension.entitlements"
+app_specifier='PROVISIONING_PROFILE_SPECIFIER = "$(IOS_APP_PROFILE_SPECIFIER)";'
+extension_specifier='PROVISIONING_PROFILE_SPECIFIER = "$(IOS_EXTENSION_PROFILE_SPECIFIER)";'
+
+if [[ ! -f "$pbxproj" ]]; then
+    result "two-target-profile-specifiers" fail "$pbxproj not found on disk (FR-28 — per-target profile wiring cannot be verified)"
+elif [[ ! -f "$ios_yml" ]]; then
+    result "two-target-profile-specifiers" fail "$ios_yml not found on disk (FR-28 — the archive wiring cannot be verified)"
+else
+    host_configs=$(grep -cF "CODE_SIGN_ENTITLEMENTS = $host_entitlements;" "$pbxproj" 2>/dev/null || true)
+    extension_configs=$(grep -cF "CODE_SIGN_ENTITLEMENTS = $extension_entitlements;" "$pbxproj" 2>/dev/null || true)
+    host_specifiers=$(grep -cF "$app_specifier" "$pbxproj" 2>/dev/null || true)
+    extension_specifiers=$(grep -cF "$extension_specifier" "$pbxproj" 2>/dev/null || true)
+    any_specifiers=$(grep -cE 'PROVISIONING_PROFILE_SPECIFIER[[:space:]]*=' "$pbxproj" 2>/dev/null || true)
+
+    # (b) a project-wide override anywhere in the workflow, comments excluded.
+    global_override=$(grep -InHE 'PROVISIONING_PROFILE_SPECIFIER[[:space:]]*=' "$ios_yml" 2>/dev/null \
+        | grep -Ev '^[^:]+:[0-9]+:[[:space:]]*#' || true)
+
+    if [[ "$host_configs" -lt 2 ]]; then
+        result "two-target-profile-specifiers" fail "$pbxproj sets 'CODE_SIGN_ENTITLEMENTS = $host_entitlements;' on $host_configs config(s) — need the host Debug AND Release configs (FR-28: without the entitlement the App Group is not granted)"
+    elif [[ "$extension_configs" -lt 2 ]]; then
+        result "two-target-profile-specifiers" fail "$pbxproj sets 'CODE_SIGN_ENTITLEMENTS = $extension_entitlements;' on $extension_configs config(s) — need the extension Debug AND Release configs (FR-28: the appex must carry the same App Group)"
+    elif [[ "$host_specifiers" -ne "$host_configs" ]]; then
+        result "two-target-profile-specifiers" fail "$pbxproj has $host_specifiers host '$app_specifier' assignment(s) for $host_configs host config(s) (FR-28 — every host config must resolve its profile from the CLI-set IOS_APP_PROFILE_SPECIFIER)"
+    elif [[ "$extension_specifiers" -ne "$extension_configs" ]]; then
+        result "two-target-profile-specifiers" fail "$pbxproj has $extension_specifiers extension '$extension_specifier' assignment(s) for $extension_configs extension config(s) (FR-28 — every extension config must resolve its OWN profile from IOS_EXTENSION_PROFILE_SPECIFIER, never the host's)"
+    elif [[ "$any_specifiers" -ne $(( host_specifiers + extension_specifiers )) ]]; then
+        result "two-target-profile-specifiers" fail "$pbxproj carries $any_specifiers PROVISIONING_PROFILE_SPECIFIER assignment(s) but only $(( host_specifiers + extension_specifiers )) are per-target (FR-28 — a specifier outside a target's configs is a project-wide override)"
+    elif [[ -n "$global_override" ]]; then
+        result "two-target-profile-specifiers" fail "$ios_yml passes a project-wide PROVISIONING_PROFILE_SPECIFIER= override (FR-28 — a CLI specifier is a project-wide build-setting override, so the embedded appex is signed with the host profile and the export/upload fails; pass IOS_APP_PROFILE_SPECIFIER / IOS_EXTENSION_PROFILE_SPECIFIER instead):
+$global_override"
+    elif ! grep -qF "IOS_EXTENSION_PROVISIONING_PROFILE_BASE64" "$ios_yml" 2>/dev/null; then
+        result "two-target-profile-specifiers" fail "$ios_yml does not consume 'IOS_EXTENSION_PROVISIONING_PROFILE_BASE64' (FR-28 — the extension's own distribution profile is never decoded, so the appex cannot be signed)"
+    else
+        result "two-target-profile-specifiers" ok
     fi
 fi
 

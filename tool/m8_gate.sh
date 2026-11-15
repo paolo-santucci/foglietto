@@ -8,14 +8,17 @@
 # Spec refs: FR-02, FR-04, FR-06, FR-30, FR-35, FR-40, FR-41; NFR-04, NFR-06,
 #            NFR-07, NFR-09; OQ-15, OQ-20; spec §7.2 source-scan inventory.
 #
-# Exit 0 only when ALL checks (1)–(25) pass.
+# Exit 0 only when ALL checks (1)–(26) pass.
 # Each check prints a labelled PASS/FAIL line; the script exits 1 on any FAIL.
 #
 # Design rules:
-#   - Checks (1)–(24) are pure source scans: no network, no device/emulator, no
-#     Gradle invocation.  `./gradlew check` is CI's job.  Check (25) is the chain
-#     into the prior gates; any Gradle cost a caller sees comes from m4_gate's own
-#     SourceScanGateTest passthrough, which already runs in CI today.
+#   - Checks (1)–(24) and (26) are pure source scans: no network, no device/
+#     emulator, no Gradle invocation.  `./gradlew check` is CI's job.  Check (25)
+#     is the chain into the prior gates; any Gradle cost a caller sees comes from
+#     m4_gate's own SourceScanGateTest passthrough, which already runs in CI
+#     today.  Check (26) is the only check that needs python3 (stdlib only: one
+#     ElementTree parse of the manifest), a dependency quality.yml already has
+#     through tool/sp_chrome_morph_gate.sh.
 #   - Mirrors the structure and idioms of tool/m4_gate.sh / tool/m5_gate.sh exactly:
 #     set -uo pipefail, PASS/FAIL counters, result()/finish() helpers, presence via
 #     `git ls-files`, absence via `grep -RIn`, prior gates chained by exit code.
@@ -990,6 +993,149 @@ else
         result "m1+m4+m5+m6+m7-still-pass" fail "m6_gate FAILED — ${m6_summary}"
     else
         result "m1+m4+m5+m6+m7-still-pass" fail "m7_gate FAILED — ${m7_summary}"
+    fi
+fi
+
+# ---------------------------------------------------------------------------
+# 26. android-share-intent-filters
+#
+# FR-21/NFR-04: the inbound share entry points.  ONE parse of the SOURCE
+# manifest (ElementTree), one set of assertions on the resulting tree — the
+# invariant is a property of the whole document (an activity's filter set), so
+# seven independent greps could not express it.  Comments are irrelevant to a
+# real XML parser, which is why the header's "<uses-permission>"/"<service>"
+# prose cannot false-fail this check (checks 7/8 keep the grep-based pins).
+#
+# Asserts:
+#   * exactly one <activity>, and it is .MainActivity (NFR-04: one surface)
+#   * android:launchMode="singleTop" (a share lands in onNewIntent instead of
+#     stacking a second editor over the user's draft)
+#   * exactly two NON-launcher <intent-filter> elements, and they are exactly
+#     SEND and PROCESS_TEXT, each with CATEGORY_DEFAULT and text/plain
+#   * zero <uses-permission>, zero <service>, zero <receiver>
+#
+# Each violation is its own line naming the element (and the offending action /
+# attribute value) so a mutation reads as "which element moved".
+# ---------------------------------------------------------------------------
+echo "[26] android-share-intent-filters: one manifest parse — single .MainActivity, singleTop, SEND+PROCESS_TEXT text/plain, no permission/service/receiver ..."
+
+if [[ ! -f "$manifest" ]]; then
+    result "android-share-intent-filters" fail "$manifest not found on disk (FR-21/NFR-04 — the share entry points cannot be verified)"
+elif ! command -v python3 > /dev/null 2>&1; then
+    result "android-share-intent-filters" fail "python3 is not available on PATH — the one manifest parse cannot run (FR-21/NFR-04)"
+else
+    share_intent_output=$(python3 - "$manifest" <<'PY' 2>&1
+import sys
+import xml.etree.ElementTree as ET
+
+ANDROID = "{http://schemas.android.com/apk/res/android}"
+SEND = "android.intent.action.SEND"
+PROCESS_TEXT = "android.intent.action.PROCESS_TEXT"
+DEFAULT = "android.intent.category.DEFAULT"
+LAUNCHER = "android.intent.category.LAUNCHER"
+MIME = "text/plain"
+FORBIDDEN = ("uses-permission", "uses-permission-sdk-23", "service", "receiver")
+
+path = sys.argv[1]
+try:
+    root = ET.parse(path).getroot()
+except ET.ParseError as exc:
+    print(f"{path}: not well-formed XML ({exc}) — the manifest cannot be parsed (FR-21/NFR-04)")
+    sys.exit(1)
+
+
+def label(element):
+    return element.get(ANDROID + "name") or "<unnamed>"
+
+
+def shape(actions, categories, mime_types):
+    return "/".join([",".join(actions), ",".join(categories), ",".join(mime_types)])
+
+
+problems = []
+
+activities = root.findall("./application/activity")
+if len(activities) != 1:
+    declared = ", ".join(label(activity) for activity in activities) or "none"
+    problems.append(
+        f"{len(activities)} <activity> element(s) declared ({declared}) — .MainActivity must be the only one (NFR-04: one exported surface)"
+    )
+    activity = None
+else:
+    activity = activities[0]
+
+if activity is not None:
+    if label(activity) != ".MainActivity":
+        problems.append(
+            f"the only <activity> is '{label(activity)}' — it must be .MainActivity (FR-21: the share entry point is the editor)"
+        )
+    launch_mode = activity.get(ANDROID + "launchMode") or ""
+    if launch_mode != "singleTop":
+        found = f"'{launch_mode}'" if launch_mode else "absent"
+        problems.append(
+            "android:launchMode is "
+            + found
+            + " on .MainActivity — it must be 'singleTop' so a share is delivered to onNewIntent instead of stacking a second editor over the draft (FR-21)"
+        )
+
+    wanted = {
+        SEND: shape([SEND], [DEFAULT], [MIME]),
+        PROCESS_TEXT: shape([PROCESS_TEXT], [DEFAULT], [MIME]),
+    }
+    observed = {}
+    non_launcher = []
+    for intent_filter in activity.findall("intent-filter"):
+        actions = [element.get(ANDROID + "name") or "" for element in intent_filter.findall("action")]
+        categories = [element.get(ANDROID + "name") or "" for element in intent_filter.findall("category")]
+        mime_types = [element.get(ANDROID + "mimeType") or "" for element in intent_filter.findall("data")]
+        if LAUNCHER in categories:
+            continue
+        shape_of_filter = shape(actions, categories, mime_types)
+        non_launcher.append(shape_of_filter)
+        for action in actions:
+            observed.setdefault(action, []).append(shape_of_filter)
+
+    if len(non_launcher) != 2:
+        problems.append(
+            f"{len(non_launcher)} non-launcher <intent-filter> element(s) on .MainActivity ({'; '.join(non_launcher) or 'none'}) — exactly two are allowed, {SEND} and {PROCESS_TEXT} (FR-21/NFR-04)"
+        )
+
+    for action in (SEND, PROCESS_TEXT):
+        shapes = observed.get(action, [])
+        if not shapes:
+            problems.append(
+                f"no <intent-filter> on .MainActivity declares <action android:name=\"{action}\"> with <category android:name=\"{DEFAULT}\"> and <data android:mimeType=\"{MIME}\"> (FR-21: inbound text/plain via {action})"
+            )
+        elif wanted[action] not in shapes:
+            problems.append(
+                f"the <action android:name=\"{action}\"> filter on .MainActivity is {shapes[0]} — it must be {wanted[action]} (FR-21: text/plain only, with CATEGORY_DEFAULT)"
+            )
+
+    for action in observed:
+        if action not in wanted:
+            problems.append(
+                f"unexpected non-launcher <intent-filter> on .MainActivity for <action android:name=\"{action}\"> — only {SEND} and {PROCESS_TEXT} are allowed (FR-21/NFR-04)"
+            )
+
+for tag in FORBIDDEN:
+    for element in root.findall(".//" + tag):
+        problems.append(
+            f"<{tag} android:name=\"{label(element)}\"> declared in the manifest — the inbound share path adds no permission, no service and no receiver (NFR-04: least privilege, one surface)"
+        )
+
+if problems:
+    for problem in problems:
+        print(problem)
+    sys.exit(1)
+
+sys.exit(0)
+PY
+)
+    share_intent_exit=$?
+    if [[ "$share_intent_exit" -ne 0 ]]; then
+        result "android-share-intent-filters" fail "$share_intent_output"
+    else
+        result "android-share-intent-filters" ok
     fi
 fi
 

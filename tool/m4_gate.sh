@@ -4,7 +4,7 @@
 # Asserts the full M4 target tree in one runnable command.  Run from the repo
 # root: bash tool/m4_gate.sh
 #
-# Exit 0 only when ALL checks (1)–(13) pass.
+# Exit 0 only when ALL checks (1)–(14) pass.
 # Each check prints a labelled PASS/FAIL line; the script exits 1 on any FAIL.
 #
 # Design rules:
@@ -385,6 +385,69 @@ $okio_hits"
     fi
 else
     result "no-okio-across-boundary" ok "(vacuous: no tracked .swift files under iosApp/)"
+fi
+
+# ---------------------------------------------------------------------------
+# 14. share-extension-isolation
+#
+# FR-14 / NFR-07 / D1: the Share Extension is a pure Foundation target.  It
+# links no Kotlin framework and touches no shared-module type:
+#
+#   a) the Xcode project contains zero direct shared.xcframework references.
+#     The host reaches Kotlin only through the SharedPackage SPM binary target
+#     (m1 check (i) pins that exact path), so an xcframework build file would be
+#     a second, separately-signed linkage path — and it is the one the extension
+#     must not gain (an appex cannot link the KMP framework: it would drag the
+#     whole shared runtime into the extension process).
+#   b) nothing under iosApp/ShareExtension/ imports the `shared` module or names
+#     a shared-module symbol (acceptIncomingText / SaveNoteToRecovery /
+#     createIosRecovery).  Normalization and the collision save belong to the
+#     host; the extension writes raw bytes only (D1/D2).
+#
+# Comment lines are filtered: ShareViewController.swift documents these two
+# absences in its own header, and a naive scan would flag the documentation.
+# ---------------------------------------------------------------------------
+echo "[14] share-extension-isolation: zero shared.xcframework references in the project, zero shared import/symbol in iosApp/ShareExtension/ ..."
+
+extension_dir="iosApp/ShareExtension"
+pbxproj_file="iosApp/iosApp.xcodeproj/project.pbxproj"
+
+if [[ ! -d "$extension_dir" ]]; then
+    result "share-extension-isolation" fail "$extension_dir does not exist — the extension's isolation cannot be verified (FR-14)"
+elif [[ ! -f "$pbxproj_file" ]]; then
+    result "share-extension-isolation" fail "$pbxproj_file not found on disk — extension linkage cannot be verified (FR-14)"
+else
+    # (a) no direct XCFramework build file anywhere in the project.
+    # -H keeps the "path:line:content" shape the comment filter expects, even
+    # though this scan names a single file.
+    xcframework_hits=$(grep -InHE 'shared\.xcframework' "$pbxproj_file" 2>/dev/null \
+        | grep -Ev '^[^:]+:[0-9]+:[[:space:]]*(//|/\*|\*)' || true)
+
+    # (b) no shared-module import and no shared-module symbol in the extension.
+    # The import pattern accepts an optional attribute prefix (@testable) and
+    # either casing of the module token, but not a longer identifier
+    # (import SharedPackage is a different module and is not this invariant).
+    isolation_hits=$(grep -RInE \
+        '(^|[^[:alnum:]_])import[[:space:]]+[Ss]hared([[:space:]]|$)|acceptIncomingText|SaveNoteToRecovery|createIosRecovery' \
+        "$extension_dir/" 2>/dev/null \
+        | grep -Ev '^[^:]+:[0-9]+:[[:space:]]*(//|/\*|\*|#)' || true)
+
+    if [[ -z "$xcframework_hits" && -z "$isolation_hits" ]]; then
+        result "share-extension-isolation" ok
+    else
+        isolation_detail=""
+        if [[ -n "$xcframework_hits" ]]; then
+            isolation_detail="${isolation_detail}shared.xcframework referenced in $pbxproj_file (FR-14/D1 — the extension links no Kotlin framework; the host reaches Kotlin through the SharedPackage SPM target only):
+$xcframework_hits
+"
+        fi
+        if [[ -n "$isolation_hits" ]]; then
+            isolation_detail="${isolation_detail}shared-module import/symbol in $extension_dir/ (FR-14/D1 — the extension writes the raw payload and owns no normalization, no recovery write):
+$isolation_hits
+"
+        fi
+        result "share-extension-isolation" fail "$isolation_detail"
+    fi
 fi
 
 # ---------------------------------------------------------------------------

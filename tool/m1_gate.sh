@@ -94,9 +94,18 @@ echo "  [b] OK"
 # ---------------------------------------------------------------------------
 # (c) iosApp tree exists
 #
-# All eight key paths in the iosApp/ tree must be present as tracked files or
+# All fifteen key paths in the iosApp/ tree must be present as tracked files or
 # as tracked files inside tracked directories.  Uses git ls-files for each
-# concrete file; the xcscheme and shared scheme are also asserted.
+# concrete file; the xcscheme and shared scheme are also asserted, plus the
+# inbound share-sheet surface (extension sources, extension plist, both App
+# Group entitlements, the inbox/drainer sources and the extension's scheme).
+#
+# The two content assertions at the end are what make the delivery half of the
+# inbound path load-bearing: both entitlements must name the SAME App Group
+# (otherwise the extension writes a container the host cannot read), and the
+# extension plist must declare the share-services extension point (otherwise
+# the target never appears in the share sheet).  Both are single-line greps on
+# tracked files — no Xcode, no plutil, no macOS (FR-13/FR-14, NFR-07).
 # ---------------------------------------------------------------------------
 echo "[c] iosApp tree ..."
 
@@ -108,11 +117,36 @@ for path in \
     "iosApp/iosApp/Info.plist" \
     "iosApp/iosApp/Assets.xcassets/AppIcon.appiconset/Contents.json" \
     "iosApp/iosApp/Assets.xcassets/LaunchBackground.colorset/Contents.json" \
-    "iosApp/iosApp.xcodeproj/xcshareddata/xcschemes/iosApp.xcscheme"
+    "iosApp/iosApp.xcodeproj/xcshareddata/xcschemes/iosApp.xcscheme" \
+    "iosApp/ShareExtension/ShareViewController.swift" \
+    "iosApp/ShareExtension/Info.plist" \
+    "iosApp/ShareExtension/ShareExtension.entitlements" \
+    "iosApp/iosApp/iosApp.entitlements" \
+    "iosApp/iosApp/Share/ShareInbox.swift" \
+    "iosApp/iosApp/Share/ShareInboxDrainer.swift" \
+    "iosApp/iosApp.xcodeproj/xcshareddata/xcschemes/ShareExtension.xcscheme"
 do
     tracked=$(git ls-files -- "$path")
     [[ -n "$tracked" ]] || fail "(c) iosApp file not tracked: $path"
 done
+
+# One App Group id, declared by BOTH targets (FR-13/FR-14): the extension
+# writes Library/Application Support/FogliettoInbox/pending.txt inside it and
+# the host drains it.  A one-sided entitlement is the silent failure mode —
+# containerURL() returns nil for whichever side is missing the group.
+app_group_id="group.paolosantucci.foglietto"
+
+for entitlements in \
+    "iosApp/iosApp/iosApp.entitlements" \
+    "iosApp/ShareExtension/ShareExtension.entitlements"
+do
+    grep -qF "$app_group_id" "$entitlements" \
+        || fail "(c) $entitlements does not declare the App Group '$app_group_id' (FR-13/FR-14 — host and extension must share one container; a one-sided entitlement makes containerURL() return nil on that side)"
+done
+
+# The share-services extension point is what puts the target in the sheet.
+grep -qF "com.apple.share-services" "iosApp/ShareExtension/Info.plist" \
+    || fail "(c) iosApp/ShareExtension/Info.plist does not declare 'com.apple.share-services' (FR-12 — NSExtensionPointIdentifier is missing or wrong, so the extension never appears in the share sheet)"
 
 echo "  [c] OK"
 
