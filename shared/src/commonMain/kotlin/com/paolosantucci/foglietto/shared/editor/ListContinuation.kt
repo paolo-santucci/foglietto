@@ -57,6 +57,12 @@ private val bulletTokens: Map<String, String> = mapOf(
  *   - .clamp() → .coerceIn().
  *   - bulletTokens map lookup for "- [x] " → "- [ ] " (E-C3).
  *   - aboveLineEnd == 0 quirk preserved verbatim (E-I2) — do NOT "fix".
+ *
+ * DELIBERATE DEVIATION (iOS-only product, 2026-11-15): continuation requires the
+ * caret to be at END OF LINE. The Dart oracle continued from any caret position,
+ * which re-parents the tail of the line into the new item — on device this reads
+ * as the previous line's last word being moved onto the marker. Do not restore
+ * the oracle's behaviour.
  */
 object ListContinuation {
 
@@ -68,6 +74,13 @@ object ListContinuation {
      */
     fun process(fullText: String, caretOffset: Int): ContinuationResult? {
         if (fullText.isEmpty()) return null
+
+        // Continuation is an end-of-line gesture. Pressing Return with the caret
+        // inside a line is a plain split: continuing there re-parents the tail of
+        // that line into a freshly numbered item, which reads as the previous
+        // line's last word being moved onto the new marker. A caret sitting on a
+        // `\n` (or at the very end of the text) still counts as end-of-line.
+        if (caretOffset != lineEndAfter(fullText, caretOffset)) return null
 
         val lineStart = lineStartBefore(fullText, caretOffset)
         val previousLine = fullText.substring(lineStart, caretOffset)

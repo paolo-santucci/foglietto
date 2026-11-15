@@ -383,4 +383,55 @@ class ListContinuationTest {
         val result = ListContinuation.process(text, 7)
         assertNull(result, "containsMatchIn guard: caret at start of already-bulleted next line must return null via empty previousLine")
     }
+
+    // =========================================================================
+    // Continuation is an end-of-line gesture (mid-line Return is a plain split)
+    // =========================================================================
+
+    @Test
+    fun givenOrderedLineAndCaretMidLine_whenReturn_thenNoContinuation() {
+        // "1. buy milk", caret after "buy" (offset 7). Continuing here would insert
+        // the next number at the caret and carry " milk" into the new item — the
+        // previous line's last word appears on the marker line.
+        val text = "1. buy milk"
+        val result = ListContinuation.process(text, 7)
+
+        assertNull(result, "a caret inside the line must not renumber: Return there is a plain split")
+    }
+
+    @Test
+    fun givenBulletLineAndCaretMidLine_whenReturn_thenNoContinuation() {
+        val text = "- buy milk"
+        val result = ListContinuation.process(text, 6)
+
+        assertNull(result, "a mid-line caret inside a bullet must not continue the list")
+    }
+
+    @Test
+    fun givenOrderedLineAndCaretAtEndOfLine_whenReturn_thenContinues() {
+        // The gesture the feature is for still works at end-of-line.
+        val text = "1. buy milk"
+        val result = ListContinuation.process(text, text.length)
+
+        assertEquals("1. buy milk\n2. ", result?.text)
+        assertEquals(result!!.text.length, result.caret)
+    }
+
+    @Test
+    fun givenCaretOnTheNewline_whenReturn_thenStillContinues() {
+        // A caret sitting on the '\n' is end-of-line for the line above it, not a
+        // mid-line position (the E-C1 boundary case).
+        val text = "1. buy milk\nsecond"
+        val result = ListContinuation.process(text, 11)
+
+        assertEquals("1. buy milk\n2. \nsecond", result?.text)
+    }
+
+    @Test
+    fun givenCaretPastTheEndOfText_whenReturn_thenReturnsNullWithoutThrowing() {
+        assertNull(
+            ListContinuation.process("1. buy milk", 999),
+            "an out-of-range caret is not end-of-line; the process must stay total",
+        )
+    }
 }
