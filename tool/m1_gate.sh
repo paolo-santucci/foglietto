@@ -204,19 +204,24 @@ android_tracked=$(git ls-files -- ".github/workflows/android.yml")
 echo "  [f] OK"
 
 # ---------------------------------------------------------------------------
-# (g) quality.yml AND ios.yml contain 'kmp-rewrite' in their trigger area
+# (g) every workflow triggers on 'main' and on no retired branch
 #
-# Without this, a push to kmp-rewrite produces zero workflow runs and the
-# entire M1 CI gate silently never fires (EC-02 — the assessment's #1 failure
-# mode).  Both workflow files must contain the string 'kmp-rewrite'.
+# Without this, a push to the only live branch produces zero workflow runs and
+# the entire CI gate silently never fires (EC-02 — the assessment's #1 failure
+# mode). All three workflows must trigger on 'main'. A trigger naming a branch
+# that no longer exists is dead config that reads as coverage, so the retired
+# 'kmp-rewrite' branch must not reappear.
 # ---------------------------------------------------------------------------
-echo "[g] kmp-rewrite trigger in quality.yml and ios.yml ..."
+echo "[g] main trigger in every workflow ..."
 
-grep -q "kmp-rewrite" ".github/workflows/quality.yml" \
-    || fail "(g) 'kmp-rewrite' not found in .github/workflows/quality.yml — branch trigger missing"
+for wf in quality.yml ios.yml android-release.yml; do
+    grep -q "branches: \[main\]" ".github/workflows/$wf" \
+        || fail "(g) 'branches: [main]' not found in .github/workflows/$wf — trigger missing"
 
-grep -q "kmp-rewrite" ".github/workflows/ios.yml" \
-    || fail "(g) 'kmp-rewrite' not found in .github/workflows/ios.yml — branch trigger missing"
+    if grep -q "kmp-rewrite" ".github/workflows/$wf"; then
+        fail "(g) retired branch 'kmp-rewrite' still referenced in .github/workflows/$wf"
+    fi
+done
 
 echo "  [g] OK"
 

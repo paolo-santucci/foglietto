@@ -2,9 +2,9 @@ name: Quality
 
 on:
   push:
-    branches: [main, kmp-rewrite]
+    branches: [main]
   pull_request:
-    branches: [main, kmp-rewrite]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
@@ -69,7 +69,7 @@ jobs:
 
       # Structural audit: asserts the full M1 target tree is intact
       # (Gradle root files, shared/ source sets, iosApp/ shell, ExportOptions
-      # at repo root, no Flutter residue, kmp-rewrite in both workflow triggers,
+      # at repo root, no Flutter residue, main in every workflow trigger,
       # etc.). Fails fast with a descriptive message identifying the first
       # failing check. Script is authored in TASK-07 (Wave 4 of the M1 plan);
       # this step is a forward reference — it will be a no-op until the script

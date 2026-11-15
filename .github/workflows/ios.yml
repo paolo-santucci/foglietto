@@ -2,10 +2,10 @@ name: iOS
 
 on:
   push:
-    branches: [main, kmp-rewrite]
+    branches: [main]
     tags: ['v*']
   pull_request:
-    branches: [main, kmp-rewrite]
+    branches: [main]
   workflow_dispatch:
     inputs:
       marketing_version:
@@ -21,7 +21,7 @@ on:
 
 jobs:
   # ---------------------------------------------------------------------------
-  # build_ios — runs on every push / PR (including kmp-rewrite, non-tag).
+  # build_ios — runs on every push / PR (non-tag).
   # Proves MC-02: the Gradle Kotlin/Native toolchain can assemble the shared
   # XCFramework, and xcodebuild can archive the native iosApp shell against it
   # without signing. No IPA export and no TestFlight upload here.
@@ -83,7 +83,7 @@ jobs:
             archive
 
   # ---------------------------------------------------------------------------
-  # test_ios — runs on every push / PR on kmp-rewrite and main (not tag-gated).
+  # test_ios — runs on every push / PR on main (not tag-gated).
   # Proves MC-03: the iosAppTests XCTest target compiles and runs on an iOS
   # Simulator, and the NFR-01 surrogate-pair XCTest passes.
   # False-green guard: the job fails if zero tests execute.

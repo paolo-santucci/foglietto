@@ -25,10 +25,10 @@ name: Android Release
 
 on:
   push:
-    branches: [main, kmp-rewrite]
+    branches: [main]
     tags: ['v*']
   pull_request:
-    branches: [main, kmp-rewrite]
+    branches: [main]
   workflow_dispatch:
     inputs:
       marketing_version:
