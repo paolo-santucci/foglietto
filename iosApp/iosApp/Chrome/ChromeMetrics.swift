@@ -8,7 +8,7 @@ enum ChromeMetrics {
     static let menuRowHorizontalPadding: CGFloat = 16
     static let menuRowSpacing: CGFloat = 2
     static let submenuExpandAnimation: Animation = .bouncy(duration: 0.35, extraBounce: 0.10)
-    static let iconScaleWeight: Font.Weight = .medium
+    static let iconScaleWeight: Font.Weight = .regular
     static let toolbarRevealAnimation: Animation = .snappy(duration: 0.22)
     static let contentTopGap: CGFloat = 0
     static let toolbarItemSpacing: CGFloat = 4

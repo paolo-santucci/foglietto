@@ -11,8 +11,13 @@ import SwiftUI
 ///
 /// Liquid Glass: the bar is ONE capsule of glass (`glassEffect`) — never glass per button, which
 /// would stack glass on glass — with the system's neutral label colour for the glyphs (no accent
-/// tint), hierarchical symbol rendering for depth, a medium weight to match the glass controls
-/// around it, and a quiet press response (see `ToolbarPressStyle`).
+/// tint) and a quiet press response (see `ToolbarPressStyle`).
+///
+/// Iconography: the plain outline set the bar shipped with — document pair, indent pair, eraser —
+/// at the system regular weight with monochrome rendering. The mixed hierarchical/medium treatment
+/// read heavier than the glass underneath and left the document pair looking half-filled, so the
+/// family is uniform again: one weight, one optical size, no filled shapes, and an eraser that
+/// says "wipe the sheet" where a bin says "throw it away".
 struct BottomToolbar: View {
     var isKeyboardPresented = false
     var isEditorEmpty = true
@@ -41,7 +46,7 @@ struct BottomToolbar: View {
                               hint: String(localized: "Indent"), action: onIndent)
                     .transition(revealTransition)
             }
-            toolbarButton("trash", label: String(localized: "Clear editor"),
+            toolbarButton("eraser", label: String(localized: "Clear editor"),
                           hint: String(localized: "Clear editor"),
                           isEnabled: !isEditorEmpty, action: onClear)
         }
@@ -62,7 +67,7 @@ struct BottomToolbar: View {
                                action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: symbol)
-                .symbolRenderingMode(.hierarchical)
+                .symbolRenderingMode(.monochrome)
                 .imageScale(.large)
                 .fontWeight(ChromeMetrics.iconScaleWeight)
                 .frame(minWidth: 44,
