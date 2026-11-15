@@ -16,9 +16,10 @@ import org.junit.Test
  * what the Clear notification says, how a dead link degrades, and which actions each bar owns —
  * resolve through these seams, so they are pinned here without a Compose UI test.
  *
- * The last test is a source scan: the top bar's *content* (Share alone, no Undo/Redo/⋮) is not
- * observable from plain JVM and Compose UI tests are Tier C, which this module excludes (OQ-20) —
- * so it is pinned against the shell's own source, the same idiom the m8 gate uses.
+ * The last test is a source scan: which actions each band owns is not observable from a plain JVM
+ * and Compose UI tests are Tier C, which this module excludes (OQ-20) — so the shell's *delegation*
+ * is pinned against its own source, the same idiom the m8 gate uses. The bands' internal order and
+ * shapes are pinned by `TopActionBarChromeTest` and `ActionRowChromeTest`.
  */
 class FogliettoAppTest {
 
@@ -60,24 +61,20 @@ class FogliettoAppTest {
     }
 
     @Test
-    fun `the top bar offers Share only and the row owns undo redo and the menu`() {
+    fun `the shell delegates both bands and composes no control of its own`() {
         val shell = appSources().single { it.contains("fun FogliettoApp(") }
 
         assertTrue(
-            "Share is the top bar's action — a circular tonal button (FR-20).",
-            shell.contains("R.string.share"),
-        )
-        assertFalse(
-            "Redo belongs to the bottom row now; the shell must not render it in the top bar.",
-            shell.contains("R.string.redo"),
-        )
-        assertFalse(
-            "The ⋮ belongs to the bottom row now; the shell must not render it in the top bar.",
-            shell.contains("R.string.open_menu"),
+            "Undo, Redo, Share and the ⋮ are the top bar's band (FR-20).",
+            shell.contains("TopActionBar("),
         )
         assertTrue(
-            "The shell delegates the whole bottom band to the two-cluster action row.",
+            "The shell delegates the whole bottom band to the floating pill.",
             shell.contains("EditorActionRow("),
+        )
+        assertFalse(
+            "The shell must not compose a button directly: the bands own their controls.",
+            shell.contains("TonalActionButton(") || shell.contains("GlyphActionButton("),
         )
     }
 

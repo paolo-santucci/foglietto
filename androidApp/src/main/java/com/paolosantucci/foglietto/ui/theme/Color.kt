@@ -19,7 +19,7 @@ import androidx.compose.ui.graphics.Color
  * purple in either mode.
  *
  * Every pair that carries text was contrast-checked: `onSecondaryContainer` on
- * `secondaryContainer` measures 8.5:1 (light) / 7.8:1 (dark), and `onSurface` on `surfaceVariant`
+ * `secondaryContainer` measures 8.6:1 (light) / 7.8:1 (dark), and `onSurface` on `surfaceVariant`
  * 14.8:1 (light) / 7.8:1 (dark) — all above the 4.5:1 floor of WCAG 2.1 AA for body text.
  */
 
@@ -37,7 +37,13 @@ internal val SwatchDark = Color(0xFF202020)
 // `--view-bg-color` — the editor canvas. Canon §Scheme matrix: light ≈ `#fff`, dark ≈ `#202020`.
 // Doubles as the chrome palette's `surface`/`background` row: the editor and the bars share one
 // canvas in both modes, so there is exactly one token per mode.
-internal val EditorSurfaceLight = Color(0xFFFFFFFF)
+//
+// DELIBERATE DEPARTURE from the canon's `#fff` (light only): the current Google Keep editor paints
+// its canvas with a very light blue-grey and floats white chrome on top of it. That two-tone step
+// is what makes the bottom pill and the top bar's rounded squares read as a raised control layer
+// instead of dissolving into the editor. The canon predates that reference; flagged for the canon
+// owner rather than silently restated there.
+internal val EditorSurfaceLight = Color(0xFFF0F4F9)
 internal val EditorSurfaceDark = Color(0xFF202020)
 
 // Editor ink — canon §Scheme matrix says "platform text colour". Kept verbatim; the live scheme
@@ -56,8 +62,12 @@ internal val HairlineDark = Color(0xFF49454F)
 /** Primary ink on the canvas — Keep's near-black. */
 internal val OnSurfaceLight = Color(0xFF1F1F1F)
 
-/** The circular tonal button fill (Share, Undo, Redo, Outdent, Indent, Clear, ⋮). */
-internal val SecondaryContainerLight = Color(0xFFE9EEF6)
+/**
+ * The tonal container fill behind every chrome action (Undo, Redo, Share, ⋮ and the pill's icons
+ * sit on the pill instead). Kept a step darker than the tinted canvas so each rounded square reads
+ * as a raised control — the ratio Keep's Expressive toolbar shows.
+ */
+internal val SecondaryContainerLight = Color(0xFFE3EAF5)
 
 /** The icon ink inside [SecondaryContainerLight]. */
 internal val OnSecondaryContainerLight = Color(0xFF3C4043)

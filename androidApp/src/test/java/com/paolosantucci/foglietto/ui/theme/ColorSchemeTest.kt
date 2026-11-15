@@ -31,9 +31,9 @@ class ColorSchemeTest {
     fun `the light scheme is driven by the neutral palette`() {
         assertScheme(
             scheme = FogliettoLightColorScheme,
-            surface = 0xFFFFFFFF,
+            surface = 0xFFF0F4F9,
             onSurface = 0xFF1F1F1F,
-            secondaryContainer = 0xFFE9EEF6,
+            secondaryContainer = 0xFFE3EAF5,
             onSecondaryContainer = 0xFF3C4043,
             primary = 0xFF1A73E8,
             onPrimary = 0xFFFFFFFF,

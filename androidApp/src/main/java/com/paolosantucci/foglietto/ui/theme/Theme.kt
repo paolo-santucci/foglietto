@@ -10,9 +10,10 @@ import androidx.compose.runtime.Composable
  * The single app theme: a Material 3 colour scheme resolved from the system dark-mode setting.
  *
  * Traced to `.claude/docs/canon/ui-design-bible.md` (§Colour & branding tokens, §Scheme matrix):
- * the editor canvas is the platform view background (`light #FFFFFF` / `dark #202020`), the editor
- * ink is the platform text colour, and the hairline ring maps to `outlineVariant`. The branding
- * colours stay out of the scheme — the canon reserves them for the icon/splash (TASK-12).
+ * the editor canvas is the platform view background (`dark #202020`; light is the Keep-reference
+ * tint `#F0F4F9`, a recorded departure — see `EditorSurfaceLight`), the editor ink is the platform
+ * text colour, and the hairline ring maps to `outlineVariant`. The branding colours stay out of the
+ * scheme — the canon reserves them for the icon/splash (TASK-12).
  *
  * ## Why the scheme is driven token by token
  *

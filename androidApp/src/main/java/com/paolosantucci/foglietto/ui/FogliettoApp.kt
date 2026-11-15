@@ -9,8 +9,6 @@ import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -34,7 +32,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.tooling.preview.Preview
-import androidx.compose.ui.unit.dp
 import com.paolosantucci.foglietto.AppContainer
 import com.paolosantucci.foglietto.R
 import com.paolosantucci.foglietto.state.ClearController
@@ -43,7 +40,7 @@ import com.paolosantucci.foglietto.state.EditorStateHolder
 import com.paolosantucci.foglietto.ui.about.AboutSheet
 import com.paolosantucci.foglietto.ui.about.AboutSheetModel
 import com.paolosantucci.foglietto.ui.chrome.EditorActionRow
-import com.paolosantucci.foglietto.ui.chrome.TonalActionButton
+import com.paolosantucci.foglietto.ui.chrome.TopActionBar
 import com.paolosantucci.foglietto.ui.editor.NoteEditorField
 import com.paolosantucci.foglietto.ui.recovery.MenuSheet
 import com.paolosantucci.foglietto.ui.recovery.RecoverySheetModel
@@ -54,12 +51,13 @@ import kotlinx.coroutines.launch
  * The app shell — the manifest's one activity, the one place that assembles the chrome over the
  * app-scoped holders (FR-20, FR-21, FR-32, FR-18).
  *
- * The layout is Google Keep's note editor, not a generic Material app bar:
+ * The layout is the current Google Keep note editor (Material 3 Expressive), not a generic Material
+ * app bar:
  *
  * ```
- *                                  ( Share )   ← title-less top bar, one circular tonal action
+ *                              (Undo)(Redo)(Share)(⋮)   ← title-less top bar, four rounded squares
  *   editor (full-bleed, the screen)
- *   (Outdent)(Indent)(Clear)    (Undo)(Redo)(⋮)   ← one row, two clusters
+ *                      ╭ (Outdent)(Indent)(Clear) ╮    ← one floating pill, centred
  * ```
  *
  * Traced to `.claude/docs/canon/ui-design-bible.md`:
@@ -70,9 +68,8 @@ import kotlinx.coroutines.launch
  *    placement is Material's `Snackbar`; the canon's top-centre toast has no M3 equivalent and
  *    FR-32 pins a Snackbar — see the CANON GAP note on [FogliettoApp].
  *  - §Accessibility / §Touch-target note: every icon-only control is labelled by a string resource
- *    ("Share", "Undo", "Redo", "Open menu"), never by a Kotlin literal, and gets its ≥48dp target
- *    from `FilledTonalIconButton`'s own `minimumInteractiveComponentSize()` — see
- *    [TonalActionButton].
+ *    ("Share", "Undo", "Redo", "Open menu"), never by a Kotlin literal, and carries its own ≥48dp
+ *    target — see [TonalActionButton] and [GlyphActionButton].
  *  - §Iconography: `open-menu-symbolic` → `more_vert` (the ⋮ overflow).
  *  - §Motion: stock Material 3 sheet and Snackbar motion; the shell adds no animation of its own
  *    (the buttons' enablement crossfade stays in [TonalActionButton]).
@@ -82,9 +79,11 @@ import kotlinx.coroutines.launch
  * FR-32 pins a Snackbar (canon §Components 8 places its toast top-centre). Both are spec
  * decisions, flagged for the canon owner rather than invented here.
  *
- * CANON GAP: the canon publishes no bottom action row. The two-cluster row (line structure on the
- * left, history + menu on the right) follows the tracked Google-Keep reference the product owner
- * reviewed; it is pinned by `ActionRowChromeTest` rather than derived from a canon table.
+ * CANON GAP: the canon publishes no bottom action row. The floating pill (line structure, one
+ * `Surface`) follows the current Google Keep reference the product owner supplied — its Material 3
+ * Expressive toolbar — and is pinned by `ActionRowChromeTest` rather than derived from a canon
+ * table. The rounded-square top-bar containers are the same reference's shape, one deliberate
+ * departure from the canon's circular chrome.
  */
 
 /**
@@ -207,13 +206,13 @@ fun FogliettoApp(container: AppContainer, modifier: Modifier = Modifier) {
  *
  * Edge-to-edge is kept (`MainActivity.enableEdgeToEdge`). Each band owns exactly one inset, once:
  *  - the status bar is the `TopAppBar`'s (`TopAppBarDefaults.windowInsets`);
- *  - the bottom is the **docked** action row's (`imePadding()` + `navigationBarsPadding()`, in
+ *  - the bottom is the **floating** pill band's (`imePadding()` + `navigationBarsPadding()`, in
  *    [EditorActionRow]), which is why it is hosted as `bottomBar` and not stacked in the content
  *    column: `Scaffold` then offsets the `SnackbarHost` above it, so the "Editor cleared" toast can
  *    never paint over the buttons the user just tapped;
- *  - the horizontal safe-drawing inset is applied once to the editor and once to the row (a
+ *  - the horizontal safe-drawing inset is applied once to the editor and once to the pill band (a
  *    landscape cutout would otherwise clip both);
- *  - the editor's bottom edge comes from the Scaffold's `innerPadding`, whose bottom is the row's
+ *  - the editor's bottom edge comes from the Scaffold's `innerPadding`, whose bottom is the band's
  *    measured height — no second bottom padding, keyboard open or closed.
  *
  * `contentWindowInsets = WindowInsets(0)` is what keeps the Scaffold from adding any insets of
@@ -238,15 +237,19 @@ internal fun FogliettoShell(
     Scaffold(
         modifier = modifier,
         topBar = {
-            TopBar(editor = editor, onShare = onShare)
+            // The bar owns the ⋮ as well, so it needs the shell's sheet routing.
+            TopBar(
+                editor = editor,
+                onShare = onShare,
+                onOpenMenu = { openSheet = ShellSheet.Menu },
+            )
         },
         bottomBar = {
             ActionDock(
                 editor = editor,
                 onClear = onClear,
-                onOpenMenu = { openSheet = ShellSheet.Menu },
-                // The row owns its bottom/IME band; the horizontal safe-drawing inset is the
-                // shell's to hand it, once (a landscape cutout would clip the first button).
+                // The band owns its bottom/IME edge; the horizontal safe-drawing inset is the
+                // shell's to hand it, once (a landscape cutout would clip the pill).
                 modifier = Modifier.windowInsetsPadding(
                     WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal),
                 ),
@@ -275,57 +278,56 @@ internal fun FogliettoShell(
 }
 
 /**
- * The docked action row, reading every enablement flag **itself** (S1): scaffolded as `bottomBar`,
- * this subcomposition — not the editor and not the shell — is the one invalidated when a keystroke
- * flips Clear, or a history change flips Undo/Redo.
+ * The floating action pill band, reading every enablement flag **itself** (S1): scaffolded as
+ * `bottomBar`, this subcomposition — not the editor and not the shell — is the one invalidated when
+ * a keystroke flips Clear.
  */
 @Composable
 private fun ActionDock(
     editor: EditorStateHolder,
     onClear: () -> Unit,
-    onOpenMenu: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     EditorActionRow(
         canClear = editor.canClear,
-        canUndo = editor.canUndo,
-        canRedo = editor.canRedo,
         onOutdent = { editor.outdent() },
         onIndent = { editor.indent() },
         onClear = onClear,
-        onUndo = { editor.undo() },
-        onRedo = { editor.redo() },
-        onOpenMenu = onOpenMenu,
         modifier = modifier,
     )
 }
 
 /**
- * The top bar: **Share only**, as one circular tonal action right-aligned in Keep's top-right
- * cluster. Undo/Redo and the ⋮ moved to the bottom row, where they act on the text.
+ * The top bar: Undo, Redo, Share and the ⋮, right-aligned as four rounded-square tonal actions —
+ * the order the current Google Keep editor uses (FR-20). The bar is title-less; the editor is the
+ * screen's content.
  *
- * Enablement is read **here** so a keystroke recomposes the bar and not the editor (FR-20).
+ * Enablement is read **here** so a keystroke or a history change recomposes the bar and not the
+ * editor (FR-20); the actual band is [TopActionBar].
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun TopBar(
     editor: EditorStateHolder,
     onShare: (String) -> Unit,
+    onOpenMenu: () -> Unit,
 ) {
     TopAppBar(
         // Title-less by contract: the editor is the screen's content, the bar is chrome (FR-20).
         title = {},
         actions = {
-            TonalActionButton(
-                labelRes = R.string.share,
-                imageVector = Icons.Filled.Share,
-                enabled = editor.shareEnabled,
-                onClick = {
+            TopActionBar(
+                canUndo = editor.canUndo,
+                canRedo = editor.canRedo,
+                canShare = editor.shareEnabled,
+                onUndo = { editor.undo() },
+                onRedo = { editor.redo() },
+                onShare = {
                     // S9: re-read the predicate at click time — the rendering flag above is the
                     // bar's, the shared rule is the gate on what actually leaves the app (EC-30).
                     if (editor.shareEnabled) onShare(editor.value.text)
                 },
-                modifier = Modifier.padding(end = TopBarActionEndPadding),
+                onOpenMenu = onOpenMenu,
             )
         },
     )
@@ -345,9 +347,6 @@ internal fun openLink(uriHandler: UriHandler, url: String) {
         // No handler for this URL: the row is inert, exactly like a link on a page with no browser.
     }
 }
-
-/** Keep's top-right cluster sits 8dp clear of the window edge. */
-private val TopBarActionEndPadding = 8.dp
 
 // ── Previews (TASK-25, I6) ───────────────────────────────────────────────────
 // `ui-tooling-preview` is already on the classpath; rendering these in Android Studio needs
