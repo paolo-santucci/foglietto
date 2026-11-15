@@ -170,4 +170,58 @@ class LineIndentTest {
         assertTrue(result2.selStart in 0..result2.text.length)
         assertTrue(result2.selExtent in 0..result2.text.length)
     }
+
+    // ── 10. indent on an empty row moves the caret past the unit ──────────────
+    //
+    // A blank line has no content for the indent to sit in front of: leaving the
+    // caret at column 0 would put the next keystroke outside the indent, so the
+    // caret (and the extent) must follow the inserted unit.
+
+    @Test
+    fun givenBlankLineInTheMiddle_whenIndent_thenTabInsertedAndCaretFollowsIt() {
+        // "a\n\nb": the blank line starts at 2, caret there (collapsed selection).
+        val result = LineIndent.indent("a\n\nb", 2, 2)
+
+        assertEquals("a\n\t\nb", result.text)
+        assertEquals(3, result.selStart, "the caret must land AFTER the inserted unit")
+        assertEquals(3, result.selExtent)
+    }
+
+    @Test
+    fun givenBlankLineAtTheEnd_whenIndent_thenTabInsertedAndCaretFollowsIt() {
+        val result = LineIndent.indent("a\n", 2, 2)
+
+        assertEquals("a\n\t", result.text)
+        assertEquals(3, result.selStart)
+    }
+
+    @Test
+    fun givenEmptyBuffer_whenIndent_thenTabInsertedAndCaretFollowsIt() {
+        // The toolbar keeps Indent disabled on a fully empty buffer, but the shared
+        // rule stays total: indenting an empty position inserts the unit there.
+        val result = LineIndent.indent("", 0, 0)
+
+        assertEquals("\t", result.text)
+        assertEquals(1, result.selStart)
+        assertEquals(1, result.selExtent)
+    }
+
+    @Test
+    fun givenEmptyBuffer_whenOutdent_thenNothingToStrip() {
+        val result = LineIndent.outdent("", 0, 0)
+
+        assertEquals("", result.text)
+        assertEquals(0, result.selStart)
+    }
+
+    @Test
+    fun givenIndentedBlankLine_whenOutdent_thenUnitRemovedAndCaretReturns() {
+        // indent → outdent round-trips text and offsets for the blank-row case.
+        val indented = LineIndent.indent("a\n\nb", 2, 2)
+        val result = LineIndent.outdent(indented.text, indented.selStart, indented.selExtent)
+
+        assertEquals("a\n\nb", result.text)
+        assertEquals(2, result.selStart)
+        assertEquals(2, result.selExtent)
+    }
 }

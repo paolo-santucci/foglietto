@@ -21,6 +21,12 @@ data class IndentResult(val text: String, val selStart: Int, val selExtent: Int)
  *   - split("\n") ONLY — never lines()/lineSequence() (they split on \r\n too).
  *   - .clamp() → .coerceIn().
  *   - Regex as raw strings; containsMatchIn (never matches).
+ *
+ * DELIBERATE DEVIATION (iOS-only product, 2026-11-15): an EMPTY buffer is not a
+ * no-op — the unit is inserted at the caret like anywhere else, and on an empty
+ * line the selection points move PAST the inserted unit. The Dart oracle left
+ * the caret at column 0 in front of an indent it could not see, so the next
+ * keystroke landed outside it. Do not restore the oracle's behaviour.
  */
 object LineIndent {
 
@@ -69,8 +75,6 @@ object LineIndent {
         selExtent: Int,
         increase: Boolean,
     ): IndentResult {
-        if (text.isEmpty()) return IndentResult(text, selStart, selExtent)
-
         val lines = splitLines(text)
         val isMultiLine = spansMultipleLines(text, selStart, selExtent)
         val affected = affectedLineIndices(lines, selStart, selExtent, isMultiLine)
@@ -190,10 +194,15 @@ object LineIndent {
         buf.append(unit)
         buf.append(line.content)
 
-        // Position-stable anchoring: shift points STRICTLY after the line start.
+        // Position-stable anchoring: a selection point moves only when it sits
+        // strictly after the line start — except on an EMPTY line, which has no
+        // content for the indent to sit in front of. There the point must move past
+        // the unit, otherwise indenting a blank row leaves the caret at column 0,
+        // in front of the indent, and the next keystroke lands outside it.
         val unitLen = unit.length
-        val startDelta = if (selStart > line.start) unitLen else 0
-        val extentDelta = if (selExtent > line.start) unitLen else 0
+        val emptyLine = line.content.isEmpty()
+        val startDelta = if (selStart > line.start || emptyLine) unitLen else 0
+        val extentDelta = if (selExtent > line.start || emptyLine) unitLen else 0
         return IndentShift(startDelta, extentDelta)
     }
 
