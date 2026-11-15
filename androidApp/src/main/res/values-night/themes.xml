@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    The app's platform theme — the night half (see `values/themes.xml` for why the theme exists).
+    The app's platform theme — the night half of the base style (see `values/themes.xml` for why
+    the theme exists and why it is split into `.Base` + `Theme.Foglietto`).
 
     Parent: `android:Theme.DeviceDefault.NoActionBar` (the dark/default DeviceDefault, API 14+) —
     the dark counterpart of the day parent, which is how this project expresses DayNight while
@@ -14,8 +15,10 @@
 -->
 <resources>
 
-    <style name="Theme.Foglietto" parent="android:Theme.DeviceDefault.NoActionBar">
+    <style name="Theme.Foglietto.Base" parent="android:Theme.DeviceDefault.NoActionBar">
         <item name="android:windowBackground">#1C1B1F</item>
     </style>
+
+    <style name="Theme.Foglietto" parent="Theme.Foglietto.Base" />
 
 </resources>

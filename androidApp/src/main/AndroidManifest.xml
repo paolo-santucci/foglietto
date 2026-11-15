@@ -17,9 +17,12 @@
       CFBundleName, so it is NOT a string resource and the 17-key inventory (FR-36, OQ-21) stays
       closed. `app_name` remains absent on purpose.
     - android:theme="@style/Theme.Foglietto" — the project's own platform theme (values/themes.xml +
-      values-night/themes.xml): no action bar, and a window background equal to the editor surface,
-      so the window before the first Compose frame is already the editor's colour instead of a
-      framework default. The Compose Material 3 scheme (FogliettoTheme) is separate and unchanged.
+      values-night/themes.xml, with values-v31/ + values-night-v31/ adding the Android 12+ splash
+      background): no action bar, and a window background equal to the editor surface, so the window
+      before the first Compose frame is already the editor's colour instead of a framework default.
+      The app-window colour is untouched by the splash qualifiers — only the system splash surface
+      takes the launcher icon's background token. The Compose Material 3 scheme (FogliettoTheme) is
+      separate and unchanged.
     - Inbound share entry points (TASK-05, FR-21, §5.1.8): .MainActivity is the single exported
       activity and declares ACTION_SEND and ACTION_PROCESS_TEXT for text/plain, each with
       CATEGORY_DEFAULT. android:launchMode="singleTop" keeps the already-running instance, so a

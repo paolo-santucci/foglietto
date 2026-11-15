@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Android 12+ (API 31) launch surface — the night-qualified copy of `values-v31/themes.xml`.
+
+    This file looks redundant next to `values-v31/` but is not: night mode outranks the platform
+    version in Android's resource-matching order, so in dark mode `values-night/` would win and the
+    splash item would silently disappear. Overriding the style here restores it.
+
+    The value is scheme-INdependent on purpose: the launcher icon has one background token
+    (`@color/ic_launcher_background` → `@color/brand_yellow`) and no `values-night` variant, so the
+    splash must stay the icon's colour in dark mode too — matching the icon is the whole point.
+    If the icon ever gains a dark background layer, this is the second place to point at it.
+-->
+<resources>
+
+    <style name="Theme.Foglietto" parent="Theme.Foglietto.Base">
+        <item name="android:windowSplashScreenBackground">@color/ic_launcher_background</item>
+    </style>
+
+</resources>

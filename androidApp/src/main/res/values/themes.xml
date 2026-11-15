@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-    The app's platform theme (I7) — the light half.
+    The app's platform theme (I7) — the light half, as a base style.
 
     Why this file exists: without `android:theme` the Activity inherits the framework default,
     whose action-bar-enabled, pre-lollipop-coloured window background flashes before Compose
@@ -9,19 +9,28 @@
     behind the first frame indistinguishable from the editor canvas (canon §Scheme matrix:
     light `#FFFFFF`).
 
+    Split into `.Base` + a one-line `Theme.Foglietto` because the Android 12+ splash settings
+    need their own qualifier (`values-v31/`): a qualified resource REPLACES the style definition
+    instead of merging items into it, so a shared base is the only way to add
+    `android:windowSplashScreenBackground` without restating the canvas colour (and the parent)
+    in every variant. `Theme.Foglietto` is what the manifest names; the base is an
+    implementation detail.
+
     Parent: `android:Theme.DeviceDefault.Light.NoActionBar` (API 14+, so every API from minSdk 26
     is covered). The review's preferred `Theme.DeviceDefault.DayNight.NoActionBar` is API 29+ and
     would crash the launch on API 26–28; the day/night split is therefore expressed the
     resource-qualifier way — this file is day, `values-night/themes.xml` is night.
 
-    No `app_name`, no splash API, no new dependency: identity in the launcher, surface in the
-    window, nothing else.
+    No `app_name`, no splash dependency: identity in the launcher, surface in the window, and the
+    splash surface in `values-v31/themes.xml`, nothing else.
 -->
 <resources>
 
-    <style name="Theme.Foglietto" parent="android:Theme.DeviceDefault.Light.NoActionBar">
+    <style name="Theme.Foglietto.Base" parent="android:Theme.DeviceDefault.Light.NoActionBar">
         <!-- The editor canvas: canon §Scheme matrix light column (`view-bg-color` ≈ #fff). -->
         <item name="android:windowBackground">#FFFFFF</item>
     </style>
+
+    <style name="Theme.Foglietto" parent="Theme.Foglietto.Base" />
 
 </resources>
